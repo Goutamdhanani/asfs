@@ -48,18 +48,38 @@ def safe_json_parse(text: str) -> dict:
     text = re.sub(r'```json\s*', '', text)
     text = re.sub(r'```\s*', '', text)
     
-    # Extract JSON object (handles newlines and nested braces)
-    match = re.search(r'\{.*\}', text, re.DOTALL)
-    
-    if not match:
+    # Try to find JSON object by counting braces to handle nested objects
+    start_idx = text.find('{')
+    if start_idx == -1:
         raise ValueError(f"No JSON object found in model output: {text[:200]}")
     
-    json_str = match.group()
+    brace_count = 0
+    end_idx = start_idx
+    
+    for i in range(start_idx, len(text)):
+        if text[i] == '{':
+            brace_count += 1
+        elif text[i] == '}':
+            brace_count -= 1
+            if brace_count == 0:
+                end_idx = i + 1
+                break
+    
+    if brace_count != 0:
+        raise ValueError(f"Unbalanced braces in JSON object: {text[start_idx:start_idx+200]}")
+    
+    json_str = text[start_idx:end_idx]
     
     try:
         return json.loads(json_str)
     except json.JSONDecodeError as e:
-        raise ValueError(f"Invalid JSON in model output: {e}\nExtracted: {json_str[:200]}")
+        # Show context around the error position
+        error_pos = getattr(e, 'pos', 0)
+        context_start = max(0, error_pos - 50)
+        context_end = min(len(json_str), error_pos + 50)
+        context = json_str[context_start:context_end]
+        raise ValueError(f"Invalid JSON in model output: {e}\nContext: ...{context}...")
+
 
 
 def load_prompt_template() -> str:
@@ -140,6 +160,14 @@ def score_segments(
     if client is None:
         raise RuntimeError("No compatible SDK available. Install azure-ai-inference or openai.")
     
+    # Define system message once (used for all segments)
+    system_message = """You are a video content analyzer. 
+
+CRITICAL: You MUST respond with ONLY valid JSON. 
+- Do NOT include markdown code blocks
+- Do NOT include any text before or after the JSON
+- Start directly with { and end with }"""
+    
     for idx, segment in enumerate(segments_to_score):
         try:
             # Format prompt with segment data
@@ -149,13 +177,6 @@ def score_segments(
             )
             
             # Call AI model
-            system_message = """You are a video content analyzer. 
-
-CRITICAL: You MUST respond with ONLY valid JSON. 
-- Do NOT include markdown code blocks
-- Do NOT include any text before or after the JSON
-- Start directly with { and end with }"""
-            
             if AZURE_SDK_AVAILABLE and isinstance(client, ChatCompletionsClient):
                 response = client.complete(
                     messages=[
