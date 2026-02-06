@@ -1,0 +1,26 @@
+# Core dependencies
+openai-whisper==20231117
+ffmpeg-python==0.2.0
+PyYAML==6.0.1
+
+# AI/ML for GitHub Models
+azure-ai-inference==1.0.0b3
+openai>=1.0.0
+
+# Google API for YouTube
+google-api-python-client==2.108.0
+google-auth-oauthlib==1.1.0
+google-auth-httplib2==0.1.1
+
+# HTTP requests for API calls
+requests==2.31.0
+
+# Audio/Video processing
+numpy==1.26.2
+
+# Optional: Better performance for Whisper
+# torch==2.1.1
+# torchaudio==2.1.1
+
+# Utilities
+python-dotenv==1.0.0
