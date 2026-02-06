@@ -51,7 +51,7 @@ asfs/
 │   └── normalize.py     # FFmpeg video standardization
 ├── transcript/          # Transcription & quality
 │   ├── __init__.py
-│   ├── transcribe.py    # Whisper transcription
+│   ├── transcribe.py    # Faster-Whisper transcription (multi-threaded)
 │   ├── audio_extract.py # Fast audio extraction
 │   └── quality_check.py # Transcript validation
 ├── segmenter/           # Candidate segment building
@@ -201,7 +201,9 @@ python main.py /path/to/video.mp4 -v
 **Note:** Aspect ratio conversion is deferred to clip extraction stage for better performance.
 
 ### 2. Transcript Generation
-- Uses OpenAI Whisper for speech-to-text
+- Uses Faster-Whisper (4x faster than standard Whisper)
+- Multi-threaded CPU inference with CTranslate2
+- Voice Activity Detection (VAD) to skip silence
 - Generates sentence-level timestamps
 - Provides word-level timing data
 
@@ -417,6 +419,6 @@ For issues, questions, or feature requests, please open an issue on GitHub.
 
 ---
 
-**Built with:** Python, FFmpeg, OpenAI Whisper, GitHub Models, Platform APIs
+**Built with:** Python, FFmpeg, Faster-Whisper, GitHub Models, Platform APIs
 
 **Status:** Production-ready, fully implemented, no placeholders
