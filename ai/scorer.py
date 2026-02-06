@@ -2,6 +2,7 @@
 
 import os
 import json
+import re
 import logging
 from typing import List, Dict
 from pathlib import Path
@@ -23,6 +24,42 @@ try:
     OPENAI_SDK_AVAILABLE = True
 except ImportError:
     OPENAI_SDK_AVAILABLE = False
+
+
+def safe_json_parse(text: str) -> dict:
+    """
+    Extract and parse JSON from model response.
+    
+    Handles cases where the model wraps JSON in:
+    - Markdown code blocks (```json ... ```)
+    - Extra whitespace or newlines
+    - Explanatory text before/after JSON
+    
+    Args:
+        text: Raw model response
+        
+    Returns:
+        Parsed JSON dictionary
+        
+    Raises:
+        ValueError: If no valid JSON found
+    """
+    # Remove markdown code blocks if present
+    text = re.sub(r'```json\s*', '', text)
+    text = re.sub(r'```\s*', '', text)
+    
+    # Extract JSON object (handles newlines and nested braces)
+    match = re.search(r'\{.*\}', text, re.DOTALL)
+    
+    if not match:
+        raise ValueError(f"No JSON object found in model output: {text[:200]}")
+    
+    json_str = match.group()
+    
+    try:
+        return json.loads(json_str)
+    except json.JSONDecodeError as e:
+        raise ValueError(f"Invalid JSON in model output: {e}\nExtracted: {json_str[:200]}")
 
 
 def load_prompt_template() -> str:
@@ -112,10 +149,17 @@ def score_segments(
             )
             
             # Call AI model
+            system_message = """You are a video content analyzer. 
+
+CRITICAL: You MUST respond with ONLY valid JSON. 
+- Do NOT include markdown code blocks
+- Do NOT include any text before or after the JSON
+- Start directly with { and end with }"""
+            
             if AZURE_SDK_AVAILABLE and isinstance(client, ChatCompletionsClient):
                 response = client.complete(
                     messages=[
-                        {"role": "system", "content": "You are a video content analyzer. Always respond with valid JSON."},
+                        {"role": "system", "content": system_message},
                         {"role": "user", "content": prompt}
                     ],
                     model=model_name,
@@ -129,7 +173,7 @@ def score_segments(
                 response = client.chat.completions.create(
                     model=model_name,
                     messages=[
-                        {"role": "system", "content": "You are a video content analyzer. Always respond with valid JSON."},
+                        {"role": "system", "content": system_message},
                         {"role": "user", "content": prompt}
                     ],
                     temperature=0.7,
@@ -138,18 +182,12 @@ def score_segments(
                 
                 ai_response = response.choices[0].message.content
             
-            # Parse AI response
+            # Parse AI response using safe parser
             try:
-                # Clean up response (remove markdown code blocks if present)
-                if "```json" in ai_response:
-                    ai_response = ai_response.split("```json")[1].split("```")[0].strip()
-                elif "```" in ai_response:
-                    ai_response = ai_response.split("```")[1].split("```")[0].strip()
-                
-                ai_analysis = json.loads(ai_response)
-            except json.JSONDecodeError as e:
+                ai_analysis = safe_json_parse(ai_response)
+            except ValueError as e:
                 logger.error(f"Failed to parse AI response as JSON: {e}")
-                logger.error(f"Response was: {ai_response}")
+                logger.error(f"Response was: {ai_response[:200]}")
                 # Create default analysis
                 ai_analysis = {
                     "scores": {
