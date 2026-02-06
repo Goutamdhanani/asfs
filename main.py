@@ -130,10 +130,10 @@ def run_pipeline(video_path: str, output_dir: str = "output"):
         
         try:
             audio_path = extract_audio(video_path, work_dir)
-            logger.info(f"✓ Audio extracted: {audio_path}")
+            logger.info(f"[OK] Audio extracted: {audio_path}")
             audit.log_pipeline_event("audio_extraction", "completed", audio_path)
         except Exception as e:
-            logger.error(f"✗ Audio extraction failed: {str(e)}")
+            logger.error(f"[FAIL] Audio extraction failed: {str(e)}")
             audit.log_pipeline_event("audio_extraction", "failed", video_path, 
                                     error_message=str(e))
             raise
@@ -146,13 +146,13 @@ def run_pipeline(video_path: str, output_dir: str = "output"):
         
         try:
             transcript_path = transcribe_video(audio_path, work_dir)
-            logger.info(f"✓ Transcript saved: {transcript_path}")
+            logger.info(f"[OK] Transcript saved: {transcript_path}")
             
             transcript_data = load_transcript(transcript_path)
             audit.log_pipeline_event("transcription", "completed", audio_path,
                                     {"segments": len(transcript_data.get("segments", []))})
         except Exception as e:
-            logger.error(f"✗ Transcription failed: {str(e)}")
+            logger.error(f"[FAIL] Transcription failed: {str(e)}")
             audit.log_pipeline_event("transcription", "failed", video_path,
                                     error_message=str(e))
             raise
@@ -166,8 +166,8 @@ def run_pipeline(video_path: str, output_dir: str = "output"):
         try:
             quality_score, passed, quality_metrics = check_transcript_quality(transcript_data)
             
-            logger.info(f"✓ Quality Score: {quality_score:.2f}/1.0")
-            logger.info(f"✓ Quality Check: {'PASSED' if passed else 'FAILED'}")
+            logger.info(f"[OK] Quality Score: {quality_score:.2f}/1.0")
+            logger.info(f"[OK] Quality Check: {'PASSED' if passed else 'FAILED'}")
             
             if not passed:
                 logger.warning("Transcript quality is below threshold")
@@ -176,7 +176,7 @@ def run_pipeline(video_path: str, output_dir: str = "output"):
             audit.log_pipeline_event("quality_check", "completed", video_path,
                                     {"score": quality_score, "passed": passed})
         except Exception as e:
-            logger.error(f"✗ Quality check failed: {str(e)}")
+            logger.error(f"[FAIL] Quality check failed: {str(e)}")
             audit.log_pipeline_event("quality_check", "failed", video_path,
                                     error_message=str(e))
             raise
@@ -190,20 +190,20 @@ def run_pipeline(video_path: str, output_dir: str = "output"):
         try:
             # Build sentence-based windows
             sentence_candidates = build_sentence_windows(transcript_data)
-            logger.info(f"✓ Sentence-based candidates: {len(sentence_candidates)}")
+            logger.info(f"[OK] Sentence-based candidates: {len(sentence_candidates)}")
             
             # Build pause-based windows
             pause_candidates = build_pause_windows(transcript_data)
-            logger.info(f"✓ Pause-based candidates: {len(pause_candidates)}")
+            logger.info(f"[OK] Pause-based candidates: {len(pause_candidates)}")
             
             # Combine candidates
             all_candidates = sentence_candidates + pause_candidates
-            logger.info(f"✓ Total candidates: {len(all_candidates)}")
+            logger.info(f"[OK] Total candidates: {len(all_candidates)}")
             
             audit.log_pipeline_event("segmentation", "completed", video_path,
                                     {"total_candidates": len(all_candidates)})
         except Exception as e:
-            logger.error(f"✗ Segmentation failed: {str(e)}")
+            logger.error(f"[FAIL] Segmentation failed: {str(e)}")
             audit.log_pipeline_event("segmentation", "failed", video_path,
                                     error_message=str(e))
             raise
@@ -222,7 +222,7 @@ def run_pipeline(video_path: str, output_dir: str = "output"):
         
         try:
             scored_segments = score_segments(all_candidates, config['model'])
-            logger.info(f"✓ Scored segments: {len(scored_segments)}")
+            logger.info(f"[OK] Scored segments: {len(scored_segments)}")
             
             # Filter by minimum score threshold
             min_score = config['model'].get('min_score_threshold', 6.0)
@@ -231,13 +231,13 @@ def run_pipeline(video_path: str, output_dir: str = "output"):
                 if seg.get('overall_score', 0) >= min_score
             ]
             
-            logger.info(f"✓ High-quality segments (score >= {min_score}): {len(high_quality_segments)}")
+            logger.info(f"[OK] High-quality segments (score >= {min_score}): {len(high_quality_segments)}")
             
             audit.log_pipeline_event("ai_scoring", "completed", video_path,
                                     {"scored": len(scored_segments),
                                      "high_quality": len(high_quality_segments)})
         except Exception as e:
-            logger.error(f"✗ AI scoring failed: {str(e)}")
+            logger.error(f"[FAIL] AI scoring failed: {str(e)}")
             audit.log_pipeline_event("ai_scoring", "failed", video_path,
                                     error_message=str(e))
             raise
@@ -258,16 +258,16 @@ def run_pipeline(video_path: str, output_dir: str = "output"):
         try:
             # Remove overlapping clips
             non_overlapping = remove_overlapping_clips(high_quality_segments)
-            logger.info(f"✓ Non-overlapping clips: {len(non_overlapping)}")
+            logger.info(f"[OK] Non-overlapping clips: {len(non_overlapping)}")
             
             # Deduplicate
             unique_clips = deduplicate_clips(non_overlapping)
-            logger.info(f"✓ Unique clips: {len(unique_clips)}")
+            logger.info(f"[OK] Unique clips: {len(unique_clips)}")
             
             audit.log_pipeline_event("validation", "completed", video_path,
                                     {"validated_clips": len(unique_clips)})
         except Exception as e:
-            logger.error(f"✗ Validation failed: {str(e)}")
+            logger.error(f"[FAIL] Validation failed: {str(e)}")
             audit.log_pipeline_event("validation", "failed", video_path,
                                     error_message=str(e))
             raise
@@ -284,7 +284,7 @@ def run_pipeline(video_path: str, output_dir: str = "output"):
         
         try:
             extracted_clips = extract_clips(video_path, unique_clips, clips_dir)
-            logger.info(f"✓ Extracted clips: {len(extracted_clips)}")
+            logger.info(f"[OK] Extracted clips: {len(extracted_clips)}")
             
             # Log each clip
             for clip in extracted_clips:
@@ -293,7 +293,7 @@ def run_pipeline(video_path: str, output_dir: str = "output"):
             audit.log_pipeline_event("extraction", "completed", video_path,
                                     {"extracted": len(extracted_clips)})
         except Exception as e:
-            logger.error(f"✗ Extraction failed: {str(e)}")
+            logger.error(f"[FAIL] Extraction failed: {str(e)}")
             audit.log_pipeline_event("extraction", "failed", video_path,
                                     error_message=str(e))
             raise
@@ -320,12 +320,12 @@ def run_pipeline(video_path: str, output_dir: str = "output"):
                 hashtags = generate_hashtags(clip, platforms)
                 clip['hashtags'] = hashtags
                 
-                logger.info(f"✓ Generated metadata for {clip['clip_id']}")
+                logger.info(f"[OK] Generated metadata for {clip['clip_id']}")
             
             audit.log_pipeline_event("metadata", "completed", video_path,
                                     {"clips_with_metadata": len(extracted_clips)})
         except Exception as e:
-            logger.error(f"✗ Metadata generation failed: {str(e)}")
+            logger.error(f"[FAIL] Metadata generation failed: {str(e)}")
             audit.log_pipeline_event("metadata", "failed", video_path,
                                     error_message=str(e))
             raise
@@ -341,12 +341,12 @@ def run_pipeline(video_path: str, output_dir: str = "output"):
             platforms = ["TikTok", "Instagram", "YouTube"]
             
             scheduled_tasks = queue.schedule_clips(extracted_clips, platforms)
-            logger.info(f"✓ Scheduled {len(scheduled_tasks)} upload tasks")
+            logger.info(f"[OK] Scheduled {len(scheduled_tasks)} upload tasks")
             
             audit.log_pipeline_event("scheduling", "completed", video_path,
                                     {"scheduled_tasks": len(scheduled_tasks)})
         except Exception as e:
-            logger.error(f"✗ Scheduling failed: {str(e)}")
+            logger.error(f"[FAIL] Scheduling failed: {str(e)}")
             audit.log_pipeline_event("scheduling", "failed", video_path,
                                     error_message=str(e))
             raise
@@ -400,18 +400,18 @@ def run_pipeline(video_path: str, output_dir: str = "output"):
                     )
                 
                 if upload_id:
-                    logger.info(f"✓ Upload successful: {upload_id}")
+                    logger.info(f"[OK] Upload successful: {upload_id}")
                     queue.record_upload(platform, clip_id, success=True)
                     audit.log_upload_event(clip_id, platform, "success", upload_id)
                     successful_uploads += 1
                 else:
-                    logger.warning(f"✗ Upload failed (no ID returned)")
+                    logger.warning(f"[FAIL] Upload failed (no ID returned)")
                     queue.record_upload(platform, clip_id, success=False)
                     audit.log_upload_event(clip_id, platform, "failed")
                     failed_uploads += 1
                 
             except Exception as e:
-                logger.error(f"✗ Upload error: {str(e)}")
+                logger.error(f"[FAIL] Upload error: {str(e)}")
                 queue.record_upload(platform, clip_id, success=False)
                 audit.log_upload_event(clip_id, platform, "failed", error_message=str(e))
                 failed_uploads += 1

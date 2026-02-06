@@ -65,7 +65,7 @@ def extract_audio(video_path: str, output_dir: str) -> str:
             raise RuntimeError("Audio file was not created")
         
         file_size = os.path.getsize(audio_path)
-        logger.info(f"✓ Audio extracted: {file_size / (1024*1024):.2f} MB")
+        logger.info(f"[OK] Audio extracted: {file_size / (1024*1024):.2f} MB")
         
         return audio_path
         
