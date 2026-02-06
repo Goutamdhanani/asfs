@@ -1,5 +1,5 @@
 # Core dependencies
-openai-whisper==20231117
+faster-whisper==1.0.3  # 4x faster than openai-whisper with multi-threading
 ffmpeg-python==0.2.0
 PyYAML==6.0.1
 

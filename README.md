@@ -19,7 +19,7 @@ This system intelligently:
 ```
 Input Video
     ↓
-Video Ingest & Normalization (FFmpeg)
+Audio Extraction (FFmpeg - fast)
     ↓
 Transcript + Timestamps (Whisper)
     ↓
@@ -31,7 +31,7 @@ AI Highlight Scoring (GitHub Models)
     ↓
 Clip Validation & Deduplication
     ↓
-FFmpeg Clip Extraction
+FFmpeg Clip Extraction from Original Video + 9:16 Crop
     ↓
 Metadata & Caption Generation
     ↓
@@ -46,12 +46,13 @@ Audit Logs & Retry System
 
 ```
 asfs/
-├── ingest/              # Video normalization
+├── ingest/              # Video normalization (not used in MVP)
 │   ├── __init__.py
 │   └── normalize.py     # FFmpeg video standardization
 ├── transcript/          # Transcription & quality
 │   ├── __init__.py
-│   ├── transcribe.py    # Whisper transcription
+│   ├── transcribe.py    # Faster-Whisper transcription (multi-threaded)
+│   ├── audio_extract.py # Fast audio extraction
 │   └── quality_check.py # Transcript validation
 ├── segmenter/           # Candidate segment building
 │   ├── __init__.py
@@ -200,7 +201,9 @@ python main.py /path/to/video.mp4 -v
 **Note:** Aspect ratio conversion is deferred to clip extraction stage for better performance.
 
 ### 2. Transcript Generation
-- Uses OpenAI Whisper for speech-to-text
+- Uses Faster-Whisper (4x faster than standard Whisper)
+- Multi-threaded CPU inference with CTranslate2
+- Voice Activity Detection (VAD) to skip silence
 - Generates sentence-level timestamps
 - Provides word-level timing data
 
@@ -297,17 +300,19 @@ After running the pipeline, you'll find:
 ```
 output/
 ├── work/
-│   ├── normalized.mp4      # Normalized source video
+│   ├── audio.wav           # Extracted audio (for transcription)
 │   └── transcript.json     # Full transcript with timestamps
 ├── clips/
-│   ├── clip_001.mp4        # Extracted clip 1
-│   ├── clip_002.mp4        # Extracted clip 2
+│   ├── clip_001.mp4        # Extracted + cropped clip 1 (9:16)
+│   ├── clip_002.mp4        # Extracted + cropped clip 2 (9:16)
 │   └── ...
 └── pipeline.log            # Detailed execution log
 
 audit/
 └── events.db               # SQLite audit database
 ```
+
+**Note:** No normalized video is created. Clips are extracted directly from the original video.
 
 ## 🔍 Monitoring & Debugging
 
@@ -414,6 +419,6 @@ For issues, questions, or feature requests, please open an issue on GitHub.
 
 ---
 
-**Built with:** Python, FFmpeg, OpenAI Whisper, GitHub Models, Platform APIs
+**Built with:** Python, FFmpeg, Faster-Whisper, GitHub Models, Platform APIs
 
 **Status:** Production-ready, fully implemented, no placeholders
