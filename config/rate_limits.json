@@ -1,0 +1,23 @@
+{
+  "TikTok": {
+    "cooldown_seconds": 3600,
+    "max_per_hour": 1,
+    "max_per_day": 10,
+    "retry_delay_seconds": 300,
+    "max_retries": 3
+  },
+  "Instagram": {
+    "cooldown_seconds": 3600,
+    "max_per_hour": 1,
+    "max_per_day": 10,
+    "retry_delay_seconds": 300,
+    "max_retries": 3
+  },
+  "YouTube": {
+    "cooldown_seconds": 3600,
+    "max_per_hour": 1,
+    "max_per_day": 10,
+    "retry_delay_seconds": 300,
+    "max_retries": 3
+  }
+}

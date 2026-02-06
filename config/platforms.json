@@ -1,0 +1,47 @@
+{
+  "TikTok": {
+    "name": "TikTok",
+    "aspect_ratio": "9:16",
+    "min_duration": 3,
+    "max_duration": 180,
+    "max_file_size_mb": 287,
+    "video_format": "mp4",
+    "resolution": {
+      "width": 1080,
+      "height": 1920
+    },
+    "api_endpoint": "https://open.tiktokapis.com/v2/post/publish/",
+    "caption_limit": 2200,
+    "hashtag_limit": 30
+  },
+  "Instagram": {
+    "name": "Instagram",
+    "aspect_ratio": "9:16",
+    "min_duration": 3,
+    "max_duration": 90,
+    "max_file_size_mb": 100,
+    "video_format": "mp4",
+    "resolution": {
+      "width": 1080,
+      "height": 1920
+    },
+    "api_endpoint": "https://graph.instagram.com/v18.0/",
+    "caption_limit": 2200,
+    "hashtag_limit": 30
+  },
+  "YouTube": {
+    "name": "YouTube Shorts",
+    "aspect_ratio": "9:16",
+    "min_duration": 1,
+    "max_duration": 60,
+    "max_file_size_mb": 256,
+    "video_format": "mp4",
+    "resolution": {
+      "width": 1080,
+      "height": 1920
+    },
+    "api_endpoint": "https://www.googleapis.com/youtube/v3/",
+    "caption_limit": 5000,
+    "hashtag_limit": 15
+  }
+}
