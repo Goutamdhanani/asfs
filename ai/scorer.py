@@ -52,12 +52,34 @@ def extract_json_safe(text: str) -> dict:
     text = re.sub(r'```json\s*', '', text)
     text = re.sub(r'```\s*', '', text)
     
-    # Try to find JSON object using regex (more robust)
-    match = re.search(r'\{.*\}', text, re.DOTALL)
-    if not match:
+    # Try to find JSON object using brace counting for accuracy
+    # This ensures we get complete nested objects
+    start_idx = text.find('{')
+    if start_idx == -1:
         raise ValueError(f"No JSON object found in response: {text[:200]}")
     
-    json_str = match.group()
+    # Count braces to find matching closing brace
+    brace_count = 0
+    end_idx = start_idx
+    
+    for i in range(start_idx, len(text)):
+        if text[i] == '{':
+            brace_count += 1
+        elif text[i] == '}':
+            brace_count -= 1
+            if brace_count == 0:
+                end_idx = i + 1
+                break
+    
+    if brace_count != 0:
+        # Fallback: try regex for simpler cases
+        match = re.search(r'\{[^{}]*\}', text)
+        if match:
+            json_str = match.group()
+        else:
+            raise ValueError(f"Unbalanced braces in JSON: {text[start_idx:start_idx+200]}")
+    else:
+        json_str = text[start_idx:end_idx]
     
     try:
         data = json.loads(json_str)
@@ -75,18 +97,25 @@ def extract_score_safe(data: dict, field: str, default: float = 0.0) -> float:
     - Nested: {"scores": {"hook_score": 7}}
     - String numbers: {"hook_score": "7"}
     
+    Individual scores are expected to be on a 0-10 scale.
+    The final_score field is expected to be on a 0-100 scale.
+    
     Args:
         data: Parsed JSON dictionary
         field: Field name to extract (e.g., "hook_score")
-        default: Default value if field not found
+        default: Default value if field not found (can be None for optional fields)
         
     Returns:
-        Numeric score as float
+        Numeric score as float, or default if not found/invalid
     """
     try:
         # Try direct access
         if field in data:
-            return float(data[field])
+            value = data[field]
+            # Return None explicitly if the value is None and default is None
+            if value is None and default is None:
+                return None
+            return float(value)
         
         # Try nested in "scores"
         if "scores" in data and isinstance(data["scores"], dict):
@@ -98,11 +127,11 @@ def extract_score_safe(data: dict, field: str, default: float = 0.0) -> float:
         if alt_field in data:
             return float(data[alt_field])
         
-        # Not found
+        # Not found - return default
         return default
         
     except (ValueError, TypeError):
-        return default
+        return default if default is not None else 0.0
 
 
 
@@ -265,10 +294,12 @@ CRITICAL: You MUST respond with ONLY valid JSON.
                 platform_fit_score = extract_score_safe(ai_analysis, "platform_fit_score", 0.0)
                 
                 # Extract final score with fallback calculation
-                final_score = extract_score_safe(ai_analysis, "final_score", 0.0)
+                # Check if final_score was explicitly provided in the response
+                final_score = extract_score_safe(ai_analysis, "final_score", None)
                 
-                # If final_score not provided, calculate weighted average
-                if final_score == 0.0 and any([hook_score, retention_score, emotion_score]):
+                # If final_score not provided, calculate weighted average from individual scores
+                # Individual scores are expected to be on 0-10 scale, final_score on 0-100 scale
+                if final_score is None:
                     final_score = (
                         hook_score * 0.35 +
                         retention_score * 0.25 +
@@ -276,7 +307,11 @@ CRITICAL: You MUST respond with ONLY valid JSON.
                         completion_score * 0.15 +
                         platform_fit_score * 0.05 +
                         relatability_score * 0.05
-                    ) * 10.0  # Scale to 0-100
+                    ) * 10.0  # Scale from 0-10 range to 0-100 range
+                elif final_score == 0.0 and not any([hook_score, retention_score, emotion_score]):
+                    # If final_score is explicitly 0 and all other scores are also 0, keep it as 0
+                    pass
+                # Otherwise use the provided final_score as-is
                 
                 # Convert final_score (0-100) to overall_score (0-10) for compatibility
                 overall_score = final_score / 10.0
