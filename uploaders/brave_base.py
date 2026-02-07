@@ -113,34 +113,36 @@ class BraveBrowserBase:
     
     def _validate_profile(self):
         """
-        Validate that the profile directory exists.
+        Validate that the profile directory exists and is accessible.
         
         Raises:
-            RuntimeError: If profile directory is missing
+            FileNotFoundError: If user data directory or profile directory is missing
         """
         if not self.user_data_dir:
             return
         
+        if not os.path.exists(self.user_data_dir):
+            raise FileNotFoundError(
+                f"Brave user data directory not found: {self.user_data_dir}\n\n"
+                f"Expected path:\n"
+                f"  Windows: C:\\Users\\<USERNAME>\\AppData\\Local\\BraveSoftware\\Brave-Browser\\User Data\n"
+                f"  macOS: /Users/<USERNAME>/Library/Application Support/BraveSoftware/Brave-Browser\n"
+                f"  Linux: /home/<username>/.config/BraveSoftware/Brave-Browser\n\n"
+                f"Set BRAVE_USER_DATA_DIR in .env file."
+            )
+        
+        # Validate profile directory exists
         profile_full_path = os.path.join(self.user_data_dir, self.profile_directory)
         
-        if not os.path.exists(self.user_data_dir):
-            raise RuntimeError(
-                f"Brave user data directory not found: {self.user_data_dir}\n"
-                f"Please specify a valid Brave user data directory path.\n"
-                f"Example (Windows): C:\\Users\\<USER>\\AppData\\Local\\BraveSoftware\\Brave-Browser\\User Data"
+        if not os.path.exists(profile_full_path):
+            available = self._list_available_profiles()
+            raise FileNotFoundError(
+                f"Brave profile not found: {profile_full_path}\n\n"
+                f"Available profiles:\n" + "\n".join(f"  - {p}" for p in available) + "\n\n"
+                f"Set BRAVE_PROFILE_DIRECTORY to one of the above in .env file."
             )
         
-        if not os.path.exists(profile_full_path):
-            raise RuntimeError(
-                f"Brave profile not found: {profile_full_path}\n"
-                f"User Data Dir: {self.user_data_dir}\n"
-                f"Profile Directory: {self.profile_directory}\n\n"
-                f"Use an existing logged-in profile. Temp profiles are NOT allowed.\n"
-                f"Available profiles in user data dir:\n" +
-                "\n".join([f"  - {d}" for d in os.listdir(self.user_data_dir) 
-                          if os.path.isdir(os.path.join(self.user_data_dir, d)) 
-                          and (d == "Default" or d.startswith("Profile"))])
-            )
+        logger.info(f"✅ Validated Brave profile: {profile_full_path}")
     
     @staticmethod
     def get_available_profiles(user_data_dir: str) -> list:
@@ -163,6 +165,17 @@ class BraveBrowserBase:
                 profiles.append(item)
         
         return sorted(profiles)
+    
+    def _list_available_profiles(self) -> list:
+        """
+        List available profiles in the current user data directory.
+        
+        Returns:
+            List of profile directory names
+        """
+        if not self.user_data_dir:
+            return []
+        return self.get_available_profiles(self.user_data_dir)
     
     def _kill_brave_processes(self):
         """Kill any running Brave browser processes to avoid profile lock conflicts."""
@@ -231,18 +244,20 @@ class BraveBrowserBase:
             "--start-maximized",  # Better UX
         ]
         
-        # Add profile directory if using persistent context
-        if self.user_data_dir:
-            launch_args.append(f"--profile-directory={self.profile_directory}")
-            logger.info(f"Using User Data Dir: {self.user_data_dir}")
-            logger.info(f"Using Profile Directory: {self.profile_directory}")
-        
         # CRITICAL: Use launch_persistent_context() to reuse real profile
         # This is the ONLY way to maintain login sessions (Google, TikTok, etc.)
         if self.user_data_dir:
+            # CORRECT: Construct full profile path BEFORE launch
+            # The user_data_dir should point to the PROFILE DIRECTORY, not the parent
+            # Windows: C:\Users\<USER>\AppData\Local\BraveSoftware\Brave-Browser\User Data\Default
+            # NOT: C:\Users\<USER>\AppData\Local\BraveSoftware\Brave-Browser\User Data
+            
+            profile_path = os.path.join(self.user_data_dir, self.profile_directory)
+            logger.info(f"Using FULL profile path: {profile_path}")
+            
             # Persistent context with real profile
             self.context = self.playwright.chromium.launch_persistent_context(
-                user_data_dir=self.user_data_dir,
+                user_data_dir=profile_path,  # ✅ FULL PATH TO PROFILE
                 executable_path=self.brave_path,
                 headless=headless,
                 
@@ -253,14 +268,11 @@ class BraveBrowserBase:
                     "--disable-component-extensions-with-background-pages",
                     "--disable-background-networking",
                     "--disable-sync",
-                    "--no-first-run",
-                    "--disable-default-browser-check",
-                    "--no-sandbox",
                 ],
                 
                 args=launch_args,
-                viewport={"width": 1280, "height": 720},
-                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+                viewport={"width": 1920, "height": 1080},
+                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
             )
             
             # Get or create page
@@ -292,6 +304,48 @@ class BraveBrowserBase:
         logger.info("Brave browser launched successfully")
         
         return self.page
+    
+    def _verify_profile_loaded(self, skip_navigation: bool = False) -> bool:
+        """
+        Verify that the real Brave profile was loaded (not a temp profile).
+        
+        NOTE: This method is optional and should only be called when needed,
+        as it navigates to chrome://version/ which may disrupt workflow.
+        
+        Args:
+            skip_navigation: If True, skips verification (returns True by default)
+        
+        Returns:
+            True if real profile detected or verification skipped, False if temp profile detected
+        """
+        if skip_navigation or not self.page:
+            return True
+        
+        try:
+            # Store current URL to restore later
+            current_url = self.page.url
+            
+            # Check for profile indicators
+            self.page.goto("chrome://version/", wait_until="load", timeout=5000)
+            content = self.page.content()
+            
+            # Check if User Data directory matches expected path
+            if self.user_data_dir and self.user_data_dir in content:
+                logger.info("✅ VERIFIED: Real Brave profile loaded successfully")
+                result = True
+            else:
+                logger.error("❌ FAILED: Temporary profile detected! User Data dir mismatch")
+                logger.error(f"Expected: {self.user_data_dir}")
+                result = False
+            
+            # Restore previous URL if it was a real page (not about:blank)
+            if current_url and current_url != "about:blank":
+                self.page.goto(current_url, wait_until="load", timeout=5000)
+            
+            return result
+        except Exception as e:
+            logger.warning(f"Could not verify profile: {e}")
+            return False
     
     def close(self):
         """Close browser and cleanup."""
