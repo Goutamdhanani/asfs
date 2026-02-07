@@ -653,7 +653,7 @@ def score_segments(
         logger.info(f"✅ Will score {len(segments_to_score)} segments using LOCAL Ollama (one-by-one)")
     else:
         effective_batch_size = BATCH_SIZE
-        logger.info(f"Using API backend → batch processing enabled (batch_size={BATCH_SIZE})")
+        logger.info(f"Using API backend → batch processing enabled (batch_size={effective_batch_size})")
         logger.info(f"✅ Will score {len(segments_to_score)} segments using API ({effective_batch_size} per batch)")
     
     # Initialize AI client only when NOT using Ollama exclusively
@@ -947,7 +947,6 @@ CRITICAL: You MUST respond with ONLY valid JSON.
             
             else:
                 # Batch processing for multiple segments
-                batch_num = (batch_start // effective_batch_size) + 1
                 try:
                     # Create batch prompt
                     batch_prompt = create_batch_prompt(batch_segments, prompt_template)
@@ -998,7 +997,7 @@ CRITICAL: You MUST respond with ONLY valid JSON.
                             # API call succeeded
                             api_call_succeeded = True
                             api_calls_made += 1
-                            logger.debug(f"Batch {batch_num}: scored {len(batch_segments)} segments with API")
+                            logger.debug(f"Batch {(batch_start // effective_batch_size) + 1}: scored {len(batch_segments)} segments with API")
                             logger.info(f"API call {api_calls_made}: {len(batch_segments)} segments, {tokens_used} tokens used so far")
                             
                             # Add inter-request delay
