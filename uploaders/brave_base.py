@@ -8,9 +8,11 @@ Provides:
 """
 
 import os
+import sys
 import time
 import random
 import logging
+import subprocess
 from pathlib import Path
 from typing import Optional
 from playwright.sync_api import sync_playwright, Browser, Page, Playwright
@@ -67,7 +69,6 @@ class BraveBrowserBase:
     
     def _detect_brave_path(self) -> str:
         """Auto-detect Brave browser executable path."""
-        import sys
         platform = sys.platform
         
         # Try platform-specific default path
@@ -165,9 +166,6 @@ class BraveBrowserBase:
     
     def _kill_brave_processes(self):
         """Kill any running Brave browser processes to avoid profile lock conflicts."""
-        import subprocess
-        import sys
-        
         logger.info("Checking for running Brave processes...")
         
         try:
@@ -179,7 +177,6 @@ class BraveBrowserBase:
                 )
                 if result.returncode == 0:
                     logger.info("Killed running Brave processes")
-                    import time
                     time.sleep(3)  # Wait for cleanup on Windows
                 else:
                     logger.debug("No Brave processes found to kill")
@@ -188,14 +185,12 @@ class BraveBrowserBase:
                     ["pkill", "-f", "Brave Browser"],
                     capture_output=True, text=True, timeout=10
                 )
-                import time
                 time.sleep(2)
             else:
                 subprocess.run(
                     ["pkill", "-f", "brave"],
                     capture_output=True, text=True, timeout=10
                 )
-                import time
                 time.sleep(2)
         except Exception as e:
             logger.warning(f"Failed to kill Brave processes: {e}")
@@ -225,8 +220,6 @@ class BraveBrowserBase:
         # Build launch arguments for anti-detection
         launch_args = [
             "--disable-blink-features=AutomationControlled",  # Hide automation
-            "--no-first-run",  # Skip first run wizard
-            "--no-default-browser-check",  # Skip default browser prompt
             "--start-maximized",  # Better UX
         ]
         
