@@ -163,6 +163,43 @@ class BraveBrowserBase:
         
         return sorted(profiles)
     
+    def _kill_brave_processes(self):
+        """Kill any running Brave browser processes to avoid profile lock conflicts."""
+        import subprocess
+        import sys
+        
+        logger.info("Checking for running Brave processes...")
+        
+        try:
+            if sys.platform == "win32":
+                # Kill brave.exe on Windows
+                result = subprocess.run(
+                    ["taskkill", "/F", "/IM", "brave.exe"],
+                    capture_output=True, text=True, timeout=10
+                )
+                if result.returncode == 0:
+                    logger.info("Killed running Brave processes")
+                    import time
+                    time.sleep(3)  # Wait for cleanup on Windows
+                else:
+                    logger.debug("No Brave processes found to kill")
+            elif sys.platform == "darwin":
+                subprocess.run(
+                    ["pkill", "-f", "Brave Browser"],
+                    capture_output=True, text=True, timeout=10
+                )
+                import time
+                time.sleep(2)
+            else:
+                subprocess.run(
+                    ["pkill", "-f", "brave"],
+                    capture_output=True, text=True, timeout=10
+                )
+                import time
+                time.sleep(2)
+        except Exception as e:
+            logger.warning(f"Failed to kill Brave processes: {e}")
+    
     def launch(self, headless: bool = False) -> Page:
         """
         Launch Brave browser using persistent context and return page.
@@ -179,6 +216,10 @@ class BraveBrowserBase:
         """
         logger.info(f"Launching Brave browser: {self.brave_path}")
         
+        # Kill any running Brave processes to avoid profile lock
+        if self.user_data_dir:
+            self._kill_brave_processes()
+        
         self.playwright = sync_playwright().start()
         
         # Build launch arguments for anti-detection
@@ -186,6 +227,7 @@ class BraveBrowserBase:
             "--disable-blink-features=AutomationControlled",  # Hide automation
             "--no-first-run",  # Skip first run wizard
             "--no-default-browser-check",  # Skip default browser prompt
+            "--start-maximized",  # Better UX
         ]
         
         # Add profile directory if using persistent context
@@ -202,6 +244,19 @@ class BraveBrowserBase:
                 user_data_dir=self.user_data_dir,
                 executable_path=self.brave_path,
                 headless=headless,
+                
+                # CRITICAL: Prevent Playwright from injecting bot-oriented defaults
+                # that break real Brave profiles
+                ignore_default_args=[
+                    "--disable-extensions",
+                    "--disable-component-extensions-with-background-pages",
+                    "--disable-background-networking",
+                    "--disable-sync",
+                    "--no-first-run",
+                    "--disable-default-browser-check",
+                    "--no-sandbox",
+                ],
+                
                 args=launch_args,
                 viewport={"width": 1280, "height": 720},
                 user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
@@ -222,7 +277,8 @@ class BraveBrowserBase:
             self.browser = self.playwright.chromium.launch(
                 executable_path=self.brave_path,
                 headless=headless,
-                args=launch_args
+                args=launch_args,
+                ignore_default_args=["--no-sandbox"],
             )
             
             self.context = self.browser.new_context(
