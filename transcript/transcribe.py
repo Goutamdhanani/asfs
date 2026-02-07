@@ -101,8 +101,8 @@ def transcribe_video(video_path: str, output_dir: str, model_size: str = "base")
             transcript_data["segments"].append(segment_data)
             segment_count += 1
             
-            # Add progress logging every 100 segments
-            if segment_count > 0 and segment_count % 100 == 0:
+            # Add progress logging every 100 segments  
+            if segment_count % 100 == 0 and segment_count > 0:
                 logger.info(f"Progress: {segment_count} segments processed...")
         
         # Save transcript to JSON

@@ -128,14 +128,9 @@ class PipelineCache:
                         'timestamp': datetime.now().isoformat()
                     }
                     
-                    # For transcript, store segment count
-                    if stage == 'transcription' and output_path.endswith('.json'):
-                        try:
-                            with open(output_path, 'r', encoding='utf-8') as f:
-                                transcript_data = json.load(f)
-                                state['outputs'][stage]['segments'] = len(transcript_data.get("segments", []))
-                        except Exception:
-                            pass
+                    # For transcript, use segment count from state if available
+                    if stage == 'transcription' and 'segment_count' in state[stage]:
+                        state['outputs'][stage]['segments'] = state[stage]['segment_count']
             
             # Store audio output metadata
             elif stage in state and 'audio_path' in state[stage]:
