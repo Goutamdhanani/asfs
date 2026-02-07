@@ -181,16 +181,24 @@ class BraveBrowserBase:
                 else:
                     logger.debug("No Brave processes found to kill")
             elif sys.platform == "darwin":
-                subprocess.run(
+                result = subprocess.run(
                     ["pkill", "-f", "Brave Browser"],
                     capture_output=True, text=True, timeout=10
                 )
+                if result.returncode == 0:
+                    logger.info("Killed running Brave processes")
+                else:
+                    logger.debug("No Brave processes found to kill")
                 time.sleep(2)
             else:
-                subprocess.run(
+                result = subprocess.run(
                     ["pkill", "-f", "brave"],
                     capture_output=True, text=True, timeout=10
                 )
+                if result.returncode == 0:
+                    logger.info("Killed running Brave processes")
+                else:
+                    logger.debug("No Brave processes found to kill")
                 time.sleep(2)
         except Exception as e:
             logger.warning(f"Failed to kill Brave processes: {e}")
