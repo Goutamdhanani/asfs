@@ -24,3 +24,7 @@ numpy==1.26.2
 
 # Utilities
 python-dotenv==1.0.0
+
+# Optional: Local LLM support (Ollama)
+# Uncomment the line below to enable local inference
+# ollama>=0.1.0

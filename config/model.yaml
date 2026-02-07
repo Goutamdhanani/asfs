@@ -17,8 +17,19 @@ model:
   max_segments_to_score: 50
   min_score_threshold: 6.0
   
-  # Rate limiting and batching (NEW)
+  # Rate limiting and batching
   batch_size: 6  # Segments per API call
   pre_filter_count: 20  # Max candidates after heuristic filtering
   inter_request_delay: 1.5  # Seconds between API calls
   max_cooldown_threshold: 60  # If retry-after > this, stop pipeline
+  
+  # LLM Backend Selection (NEW)
+  # Options: "auto" | "local" | "api"
+  # - auto (default): Try local Ollama first, fallback to API if unavailable
+  # - local: Require Ollama, fallback to API with warning if unavailable
+  # - api: Use API only, skip local entirely
+  llm_backend: "auto"
+  
+  # Local LLM Configuration (Ollama)
+  local_model_name: "qwen3:latest"  # Supported: qwen3:latest, qwen3:8b, qwen3:14b
+  local_endpoint: "http://localhost:11434"

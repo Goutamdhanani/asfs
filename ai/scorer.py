@@ -27,6 +27,14 @@ try:
 except ImportError:
     OPENAI_SDK_AVAILABLE = False
 
+# Try importing Ollama SDK
+try:
+    import ollama
+    OLLAMA_AVAILABLE = True
+except ImportError:
+    OLLAMA_AVAILABLE = False
+    logger.info("Ollama SDK not available - will use remote APIs only")
+
 
 def extract_json_safe(text: str) -> dict:
     """
@@ -146,6 +154,105 @@ def load_prompt_template() -> str:
     
     with open(prompt_path, 'r', encoding='utf-8') as f:
         return f.read()
+
+
+def check_ollama_availability(model_name: str = "qwen3:latest", timeout: float = 1.0, endpoint: str = "http://localhost:11434") -> bool:
+    """
+    Check if Ollama is running and model is available.
+    
+    Args:
+        model_name: Name of the Ollama model to check
+        timeout: Connection timeout in seconds
+        endpoint: Ollama endpoint URL
+        
+    Returns:
+        True if Ollama is running and model exists, False otherwise
+    """
+    if not OLLAMA_AVAILABLE:
+        return False
+    
+    try:
+        # Quick health check with timeout
+        client = ollama.Client(host=endpoint, timeout=timeout)
+        
+        # List available models
+        models = client.list()
+        
+        # Check if our model is available
+        available_models = [m['name'] for m in models.get('models', [])]
+        
+        # Match model name (handle with/without tag)
+        model_base = model_name.split(':')[0]
+        for available in available_models:
+            if available.startswith(model_base):
+                logger.info(f"Ollama is running with model: {available}")
+                return True
+        
+        logger.warning(f"Ollama is running but model '{model_name}' not found. Available: {available_models}")
+        return False
+        
+    except Exception as e:
+        logger.debug(f"Ollama not available: {e}")
+        return False
+
+
+def score_with_ollama(
+    segment: Dict,
+    prompt: str,
+    model_name: str = "qwen3:latest",
+    temperature: float = 0.2,
+    endpoint: str = "http://localhost:11434"
+) -> Dict:
+    """
+    Score a segment using local Ollama model.
+    
+    Args:
+        segment: Segment data
+        prompt: Formatted prompt
+        model_name: Ollama model name
+        temperature: Temperature for generation
+        endpoint: Ollama endpoint URL
+        
+    Returns:
+        Parsed AI analysis dictionary
+        
+    Raises:
+        Exception: If Ollama call fails
+    """
+    client = ollama.Client(host=endpoint)
+    
+    # Call Ollama API
+    response = client.chat(
+        model=model_name,
+        messages=[
+            {
+                "role": "system",
+                "content": """You are a video content analyzer.
+
+CRITICAL: You MUST respond with ONLY valid JSON.
+- Do NOT include markdown code blocks
+- Do NOT include any text before or after the JSON
+- Start directly with { and end with }"""
+            },
+            {
+                "role": "user",
+                "content": prompt
+            }
+        ],
+        options={
+            "temperature": temperature,
+            "num_predict": 1024  # Max tokens
+        },
+        format="json"  # Force JSON output
+    )
+    
+    # Extract response
+    ai_response = response['message']['content']
+    
+    # Parse JSON
+    ai_analysis = extract_json_safe(ai_response)
+    
+    return ai_analysis
 
 
 def create_batch_prompt(segments: List[Dict], prompt_template: str) -> str:
@@ -443,6 +550,36 @@ def score_segments(
     # Load prompt template
     prompt_template = load_prompt_template()
     
+    # Backend selection configuration
+    llm_backend = model_config.get("llm_backend", "auto")  # auto | local | api
+    local_model_name = model_config.get("local_model_name", "qwen3:latest")
+    local_endpoint = model_config.get("local_endpoint", "http://localhost:11434")
+    temperature = model_config.get("temperature", 0.2)  # Use from config
+    
+    # Determine if we should try local model
+    ollama_available = False
+    
+    if llm_backend == "api":
+        logger.info("Backend: API only (local disabled by config)")
+    elif llm_backend in ["auto", "local"]:
+        # Check Ollama availability
+        ollama_available = check_ollama_availability(local_model_name, endpoint=local_endpoint)
+        
+        if ollama_available:
+            logger.info(f"Backend: Local LLM (Ollama) - model: {local_model_name}")
+        else:
+            if llm_backend == "local":
+                logger.warning("Backend: LOCAL required but Ollama unavailable - falling back to API")
+            else:  # auto
+                logger.info("Backend: AUTO - Ollama unavailable, using API")
+    else:
+        logger.warning(f"Unknown llm_backend '{llm_backend}', defaulting to 'auto'")
+        ollama_available = check_ollama_availability(local_model_name, endpoint=local_endpoint)
+        if ollama_available:
+            logger.info(f"Backend: Local LLM (Ollama) - model: {local_model_name}")
+        else:
+            logger.info("Backend: AUTO - Ollama unavailable, using API")
+    
     # Pre-filter candidates using heuristics
     pre_filter_count = model_config.get('pre_filter_count', 20)
     logger.info(f"Pre-filtering {len(candidates)} candidates using heuristics")
@@ -515,99 +652,125 @@ CRITICAL: You MUST respond with ONLY valid JSON.
                     .replace("{{DURATION}}", f"{segment['duration']:.1f}")
                 )
                 
-                # Call AI model with retry logic
-                ai_response = None
-                api_call_succeeded = False
-                max_retries = 1
+                ai_analysis = None
+                used_local = False
                 
-                for attempt in range(max_retries + 1):
+                # Try local model first if available
+                if ollama_available:
                     try:
-                        if AZURE_SDK_AVAILABLE and isinstance(client, ChatCompletionsClient):
-                            response = client.complete(
-                                messages=[
-                                    {"role": "system", "content": system_message},
-                                    {"role": "user", "content": prompt}
-                                ],
-                                model=model_name,
-                                temperature=0.2,  # Changed from 0.7 - reduces variance, stabilizes output
-                                max_tokens=1024,
-                                response_format={"type": "json_object"}
-                            )
-                            
-                            ai_response = response.choices[0].message.content
-                            
-                            # Track token usage
-                            if hasattr(response, 'usage'):
-                                tokens_used += response.usage.total_tokens
-                            
-                        else:  # OpenAI SDK
-                            response = client.chat.completions.create(
-                                model=model_name,
-                                messages=[
-                                    {"role": "system", "content": system_message},
-                                    {"role": "user", "content": prompt}
-                                ],
-                                temperature=0.2,  # Changed from 0.7 - reduces variance, stabilizes output
-                                max_tokens=1024,
-                                response_format={"type": "json_object"}
-                            )
-                            
-                            ai_response = response.choices[0].message.content
-                            
-                            # Track token usage
-                            if hasattr(response, 'usage'):
-                                tokens_used += response.usage.total_tokens
+                        ai_analysis = score_with_ollama(
+                            segment=segment,
+                            prompt=prompt,
+                            model_name=local_model_name,
+                            temperature=temperature,
+                            endpoint=local_endpoint
+                        )
+                        used_local = True
+                        logger.debug(f"Segment {idx + 1}: scored with local LLM")
                         
-                        # API call succeeded
-                        api_call_succeeded = True
-                        api_calls_made += 1
-                        logger.info(f"API call {api_calls_made}: 1 segment, {tokens_used} tokens used so far")
-                        
-                        # Add inter-request delay to prevent rapid-fire requests
-                        if batch_start > 0:  # Skip delay for first request
-                            time.sleep(inter_request_delay)
-                        
-                        break
-                        
-                    except Exception as api_error:
-                        # Check if it's a 429 rate limit error
-                        if hasattr(api_error, 'status_code') and api_error.status_code == 429:
-                            # Extract retry-after from headers
-                            retry_after = extract_retry_after(api_error)
-                            if retry_after and retry_after > max_cooldown_threshold:
-                                logger.error(f"Rate limit exceeded with long cooldown ({retry_after}s). Stopping scoring.")
-                                # Save state
-                                remaining = segments_to_score[idx:]
-                                save_pipeline_state(scored_segments, remaining)
-                                return scored_segments
-                            
-                            # Add jitter to prevent thundering herd
-                            sleep_time = (retry_after or 10) + random.uniform(1, 5)
-                            logger.warning(f"Rate limited. Sleeping for {sleep_time:.1f}s")
-                            time.sleep(sleep_time)
-                            continue
-                        
-                        if attempt < max_retries:
-                            backoff = min(300, (2 ** attempt) + random.uniform(0, 1))
-                            logger.warning(f"API call failed for segment {idx + 1}, retrying in {backoff:.1f}s... ({api_error})")
-                            time.sleep(backoff)
-                        else:
-                            logger.error(f"API call failed for segment {idx + 1} after {max_retries + 1} attempts: {api_error}")
-                            raise
+                    except Exception as local_error:
+                        logger.warning(f"Local LLM failed for segment {idx + 1}: {local_error}")
+                        logger.info("Falling back to remote API")
+                        ai_analysis = None  # Force API fallback
                 
-                if not api_call_succeeded or ai_response is None:
-                    raise RuntimeError("API call failed and no response received")
+                # Fallback to API if local failed or unavailable
+                if ai_analysis is None:
+                    ai_response = None
+                    api_call_succeeded = False
+                    max_retries = 3  # Increased from 1
+                    
+                    for attempt in range(max_retries + 1):
+                        try:
+                            if AZURE_SDK_AVAILABLE and isinstance(client, ChatCompletionsClient):
+                                response = client.complete(
+                                    messages=[
+                                        {"role": "system", "content": system_message},
+                                        {"role": "user", "content": prompt}
+                                    ],
+                                    model=model_name,
+                                    temperature=temperature,
+                                    max_tokens=1024,
+                                    response_format={"type": "json_object"}
+                                )
+                                ai_response = response.choices[0].message.content
+                                
+                                # Track token usage
+                                if hasattr(response, 'usage'):
+                                    tokens_used += response.usage.total_tokens
+                                
+                            else:  # OpenAI SDK
+                                response = client.chat.completions.create(
+                                    model=model_name,
+                                    messages=[
+                                        {"role": "system", "content": system_message},
+                                        {"role": "user", "content": prompt}
+                                    ],
+                                    temperature=temperature,
+                                    max_tokens=1024,
+                                    response_format={"type": "json_object"}
+                                )
+                                ai_response = response.choices[0].message.content
+                                
+                                # Track token usage
+                                if hasattr(response, 'usage'):
+                                    tokens_used += response.usage.total_tokens
+                            
+                            api_call_succeeded = True
+                            break
+                            
+                        except Exception as api_error:
+                            # Check for rate limiting (429)
+                            is_rate_limit = False
+                            retry_after = None
+                            
+                            if hasattr(api_error, 'status_code') and api_error.status_code == 429:
+                                is_rate_limit = True
+                                # Try to extract retry-after
+                                if hasattr(api_error, 'response') and hasattr(api_error.response, 'headers'):
+                                    retry_after = api_error.response.headers.get('retry-after')
+                                    if retry_after:
+                                        retry_after = int(retry_after)
+                            
+                            if is_rate_limit and retry_after and retry_after > 60:
+                                logger.error(f"Rate limit with long cooldown ({retry_after}s). Stopping.")
+                                raise RuntimeError(f"Rate limit exceeded: retry after {retry_after}s")
+                            
+                            if attempt < max_retries:
+                                # Exponential backoff with jitter
+                                if is_rate_limit and retry_after:
+                                    backoff = retry_after + random.uniform(1, 5)
+                                else:
+                                    backoff = min(60, (2 ** attempt) + random.uniform(0, 1))
+                                
+                                logger.warning(f"API call failed for segment {idx + 1}, retrying in {backoff:.1f}s... ({api_error})")
+                                time.sleep(backoff)
+                            else:
+                                logger.error(f"API call failed for segment {idx + 1} after {max_retries + 1} attempts: {api_error}")
+                                raise
+                    
+                    if not api_call_succeeded or ai_response is None:
+                        raise RuntimeError("API call failed and no response received")
+                    
+                    # Parse API response
+                    try:
+                        ai_analysis = extract_json_safe(ai_response)
+                        logger.debug(f"Segment {idx + 1}: scored with API")
+                    except ValueError as e:
+                        logger.warning(f"Failed to parse API response for segment {idx + 1}: {e}")
+                        raise
                 
-                # Log raw output for first segment
+                # Log raw output for first segment only
                 if idx == 0:
-                    logger.info(f"Raw model output for first segment (first 300 chars): {ai_response[:300]}")
-                else:
-                    logger.debug(f"Raw model output (first 200 chars): {ai_response[:200]}")
+                    source = "local LLM" if used_local else "API"
+                    logger.info(f"Using {source} for scoring")
                 
-                # Parse and process single segment response
-                ai_analysis = extract_json_safe(ai_response)
+                # Process single segment response
                 scored_segment = process_single_segment_response(segment, ai_analysis, idx)
                 scored_segments.append(scored_segment)
+                
+                # Add delay between requests (only for API calls)
+                if not used_local and idx < len(segments_to_score) - 1:
+                    time.sleep(inter_request_delay)
                 
             except Exception as e:
                 logger.error(f"Failed to score segment {idx + 1}: {str(e)}")
