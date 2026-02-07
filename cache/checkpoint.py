@@ -219,7 +219,7 @@ class PipelineCache:
         
         return stage in state and state[stage].get('completed', False)
     
-    def should_invalidate_ai_scoring(self, video_path: str, current_config: dict, state: Optional[Dict] = None) -> bool:
+    def should_invalidate_ai_scoring(self, video_path: str, current_model_config: dict, state: Optional[Dict] = None) -> bool:
         """
         Check if AI scoring cache should be invalidated.
         
@@ -229,7 +229,7 @@ class PipelineCache:
         
         Args:
             video_path: Path to input video
-            current_config: Current model configuration
+            current_model_config: Current model configuration
             state: Optional pre-loaded pipeline state (to avoid re-loading)
             
         Returns:
@@ -245,17 +245,17 @@ class PipelineCache:
         cached_config = state.get("ai_config", {})
         
         # Check if model endpoint changed
-        if cached_config.get("endpoint") != current_config.get("endpoint"):
+        if cached_config.get("endpoint") != current_model_config.get("endpoint"):
             logger.info("AI scoring cache invalidated: endpoint changed")
             return True
         
         # Check if model name changed
-        if cached_config.get("model_name") != current_config.get("model_name"):
+        if cached_config.get("model_name") != current_model_config.get("model_name"):
             logger.info("AI scoring cache invalidated: model changed")
             return True
         
         # Check if threshold changed
-        if cached_config.get("min_score_threshold") != current_config.get("min_score_threshold"):
+        if cached_config.get("min_score_threshold") != current_model_config.get("min_score_threshold"):
             logger.info("AI scoring cache invalidated: threshold changed")
             return True
         

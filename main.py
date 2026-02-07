@@ -364,10 +364,11 @@ def run_pipeline(video_path: str, output_dir: str = "output", use_cache: bool = 
         logger.info("=" * 80)
         
         # Check if cache is valid
+        cache_is_invalidated = cache.should_invalidate_ai_scoring(video_path, config['model'], pipeline_state)
         should_skip_scoring = (
             use_cache and 
             cache.has_completed_stage(pipeline_state, 'ai_scoring') and
-            not cache.should_invalidate_ai_scoring(video_path, config['model'], pipeline_state)
+            not cache_is_invalidated
         )
         
         if should_skip_scoring:
@@ -381,7 +382,7 @@ def run_pipeline(video_path: str, output_dir: str = "output", use_cache: bool = 
             # Log reason for re-scoring
             if not use_cache:
                 logger.info("Cache disabled via --no-cache flag")
-            elif cache.should_invalidate_ai_scoring(video_path, config['model'], pipeline_state):
+            elif cache_is_invalidated:
                 logger.info("Re-running AI scoring due to config changes")
             
             audit.log_pipeline_event("ai_scoring", "started", video_path)
@@ -437,9 +438,10 @@ def run_pipeline(video_path: str, output_dir: str = "output", use_cache: bool = 
                 logger.warning(f"  Min: {min(scores):.1f}")
             
             logger.warning("To get clips:")
-            logger.warning("  1. Run with --no-cache to re-score segments")
-            logger.warning("  2. Lower min_score_threshold in config/model.yaml")
-            logger.warning("  3. Fix AI scoring JSON parsing (if scores are all 0)")
+            logger.warning("  1. Lower min_score_threshold in config/model.yaml")
+            logger.warning("     (Cache will auto-invalidate and re-score)")
+            logger.warning("  2. Fix AI scoring JSON parsing (if scores are all 0)")
+            logger.warning("  3. Use --no-cache to force complete re-processing")
             logger.warning("=" * 80)
             
             audit.log_pipeline_event("pipeline", "completed", video_path,
