@@ -364,11 +364,11 @@ def run_pipeline(video_path: str, output_dir: str = "output", use_cache: bool = 
         logger.info("=" * 80)
         
         # Check if cache is valid
-        cache_is_invalidated = cache.should_invalidate_ai_scoring(video_path, config['model'], pipeline_state)
+        should_invalidate_cache = cache.should_invalidate_ai_scoring(video_path, config['model'], pipeline_state)
         should_skip_scoring = (
             use_cache and 
             cache.has_completed_stage(pipeline_state, 'ai_scoring') and
-            not cache_is_invalidated
+            not should_invalidate_cache
         )
         
         if should_skip_scoring:
@@ -382,7 +382,7 @@ def run_pipeline(video_path: str, output_dir: str = "output", use_cache: bool = 
             # Log reason for re-scoring
             if not use_cache:
                 logger.info("Cache disabled via --no-cache flag")
-            elif cache_is_invalidated:
+            elif should_invalidate_cache:
                 logger.info("Re-running AI scoring due to config changes")
             
             audit.log_pipeline_event("ai_scoring", "started", video_path)
@@ -424,9 +424,9 @@ def run_pipeline(video_path: str, output_dir: str = "output", use_cache: bool = 
         
         
         if not high_quality_segments:
-            logger.warning("=" * 80)
+            logger.info("=" * 80)
             logger.warning("NO HIGH-QUALITY SEGMENTS FOUND")
-            logger.warning("=" * 80)
+            logger.info("=" * 80)
             logger.warning(f"Current threshold: {min_score_threshold}")
             
             # Show score distribution
@@ -442,7 +442,7 @@ def run_pipeline(video_path: str, output_dir: str = "output", use_cache: bool = 
             logger.warning("     (Cache will auto-invalidate and re-score)")
             logger.warning("  2. Fix AI scoring JSON parsing (if scores are all 0)")
             logger.warning("  3. Use --no-cache to force complete re-processing")
-            logger.warning("=" * 80)
+            logger.info("=" * 80)
             
             audit.log_pipeline_event("pipeline", "completed", video_path,
                                     {"clips": 0, "reason": "No high-quality segments"})
