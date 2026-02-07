@@ -157,11 +157,12 @@ def load_prompt_template() -> str:
         return f.read()
 
 
-def check_ollama_availability(model_name: str = "qwen3:latest", timeout: float = 1.0, endpoint: str = "http://localhost:11434") -> bool:
+def check_ollama_availability(model_name: str = "qwen3:latest", timeout: float = 1.0, endpoint: str = "http://localhost:11434") -> tuple:
     """
     Check if Ollama is running and model is available.
     
     Uses the stable HTTP API (/api/tags) instead of the SDK for discovery.
+    Performs test inference to verify GPU/memory availability.
     
     Args:
         model_name: Name of the Ollama model to check (e.g., "qwen3:8b")
@@ -169,7 +170,9 @@ def check_ollama_availability(model_name: str = "qwen3:latest", timeout: float =
         endpoint: Ollama endpoint URL
         
     Returns:
-        True if Ollama is running and model exists, False otherwise
+        Tuple of (bool, str or None): (availability status, exact matched model name)
+        - (True, "qwen3:8b") if available and working
+        - (False, None) if unavailable or failed
     """
     try:
         # Use HTTP API for stable model discovery
@@ -196,52 +199,81 @@ def check_ollama_availability(model_name: str = "qwen3:latest", timeout: float =
         
         if not available_models:
             logger.warning("Ollama is running but no models found")
-            return False
+            return False, None
         
         # Normalize model names for comparison (case-insensitive)
         model_name_normalized = model_name.lower().strip()
         available_normalized = [m.lower().strip() for m in available_models]
         
         # Strategy 1: Exact match (preferred)
+        matched_model = None
         for i, available in enumerate(available_normalized):
             if available == model_name_normalized:
                 matched_model = available_models[i]
                 logger.info(f"Ollama is running with model: {matched_model} (exact match)")
-                return True
+                break
         
         # Strategy 2: Base name match (e.g., "qwen3:8b" matches "qwen3:*")
-        model_base = model_name_normalized.split(':')[0]
-        for i, available in enumerate(available_normalized):
-            available_base = available.split(':')[0]
-            if available_base == model_base:
-                matched_model = available_models[i]
-                logger.info(f"Ollama is running with model: {matched_model} (base name match for '{model_name}')")
-                return True
+        if not matched_model:
+            model_base = model_name_normalized.split(':')[0]
+            for i, available in enumerate(available_normalized):
+                available_base = available.split(':')[0]
+                if available_base == model_base:
+                    matched_model = available_models[i]
+                    logger.info(f"Ollama is running with model: {matched_model} (base name match for '{model_name}')")
+                    break
         
         # No match found - log available models at INFO level for debugging
-        logger.warning(f"Ollama is running but model '{model_name}' not found.")
-        logger.info(f"Available models: {', '.join(available_models)}")
-        logger.info(f"Tip: Check your config/model.yaml - local_model_name should match one of the above")
-        return False
+        if not matched_model:
+            logger.warning(f"Ollama is running but model '{model_name}' not found.")
+            logger.info(f"Available models: {', '.join(available_models)}")
+            logger.info(f"Tip: Check your config/model.yaml - local_model_name should match one of the above")
+            return False, None
+        
+        # Test inference to verify GPU/memory availability (if Ollama SDK is available)
+        if OLLAMA_AVAILABLE:
+            try:
+                logger.debug("Testing Ollama inference capability...")
+                client = ollama.Client(host=endpoint)
+                test_response = client.chat(
+                    model=matched_model,
+                    messages=[{"role": "user", "content": "test"}],
+                    stream=False,  # ✅ Critical: Disable streaming
+                    options={"num_predict": 10}  # Minimal tokens for test
+                )
+                logger.info(f"✅ Ollama model {matched_model} test inference successful")
+                return True, matched_model
+            except Exception as e:
+                error_msg = str(e).lower()
+                if "memory" in error_msg or "allocation" in error_msg or "vram" in error_msg:
+                    logger.warning(f"Ollama GPU memory error: {e}")
+                    logger.info(f"Tip: Consider using CPU-only mode (OLLAMA_NO_GPU=1) or smaller model")
+                else:
+                    logger.warning(f"Ollama test inference failed: {e}")
+                return False, None
+        else:
+            # If SDK not available, just return that model exists (fallback behavior)
+            logger.info(f"Ollama SDK not available, skipping test inference")
+            return True, matched_model
         
     except requests.exceptions.ConnectionError as e:
         logger.debug(f"Ollama connection failed: {e}")
-        return False
+        return False, None
     except requests.exceptions.Timeout as e:
         logger.debug(f"Ollama connection timeout: {e}")
-        return False
+        return False, None
     except requests.exceptions.HTTPError as e:
         # Handles HTTP status errors (non-200 status codes)
         logger.warning(f"Ollama HTTP error: {e}")
-        return False
+        return False, None
     except (ValueError, requests.exceptions.JSONDecodeError) as e:
         # Handle invalid JSON response
         logger.warning(f"Ollama returned invalid JSON response: {e}")
-        return False
+        return False, None
     except Exception as e:
         logger.warning(f"Ollama availability check failed: {e}")
         logger.debug("Full error details:", exc_info=True)
-        return False
+        return False, None
 
 
 def score_with_ollama(
@@ -249,7 +281,8 @@ def score_with_ollama(
     prompt: str,
     model_name: str = "qwen3:latest",
     temperature: float = 0.2,
-    endpoint: str = "http://localhost:11434"
+    endpoint: str = "http://localhost:11434",
+    keep_alive: str = "5m"
 ) -> Dict:
     """
     Score a segment using local Ollama model.
@@ -257,9 +290,10 @@ def score_with_ollama(
     Args:
         segment: Segment data
         prompt: Formatted prompt
-        model_name: Ollama model name
+        model_name: Ollama model name (exact name from /api/tags)
         temperature: Temperature for generation
         endpoint: Ollama endpoint URL
+        keep_alive: How long to keep model in memory (e.g., "5m", "10m", "-1" for indefinite)
         
     Returns:
         Parsed AI analysis dictionary
@@ -272,29 +306,42 @@ def score_with_ollama(
     
     client = ollama.Client(host=endpoint)
     
-    # Call Ollama API
+    # Strengthened system prompt for JSON-only responses
+    system_prompt = """You are a video content analyzer.
+
+CRITICAL RESPONSE FORMAT:
+1. Your response MUST be ONLY valid JSON
+2. Start IMMEDIATELY with { character
+3. End with } character
+4. NO markdown, NO explanations, NO code blocks
+5. NO text before or after the JSON object
+
+Example of CORRECT response:
+{"hook_score": 7, "retention_score": 6, ...}
+
+Example of INCORRECT response:
+Here's the analysis: ```json{"hook_score": 7}```"""
+    
+    # Call Ollama API with critical parameters
     response = client.chat(
         model=model_name,
         messages=[
             {
                 "role": "system",
-                "content": """You are a video content analyzer.
-
-CRITICAL: You MUST respond with ONLY valid JSON.
-- Do NOT include markdown code blocks
-- Do NOT include any text before or after the JSON
-- Start directly with { and end with }"""
+                "content": system_prompt
             },
             {
                 "role": "user",
                 "content": prompt
             }
         ],
+        stream=False,  # ✅ CRITICAL: Disable streaming for complete responses
         options={
             "temperature": temperature,
             "num_predict": 1024  # Max tokens
         },
-        format="json"  # Force JSON output
+        format="json",  # ✅ Hint to model for JSON output
+        keep_alive=keep_alive  # ✅ Keep model in memory to reduce reload times
     )
     
     # Extract response
@@ -606,18 +653,20 @@ def score_segments(
     local_model_name = model_config.get("local_model_name", "qwen3:latest")
     local_endpoint = model_config.get("local_endpoint", "http://localhost:11434")
     temperature = model_config.get("temperature", 0.2)  # Use from config
+    local_keep_alive = model_config.get("local_keep_alive", "5m")  # Memory management
     
     # Determine if we should try local model
     ollama_available = False
+    exact_model_name = None  # Store exact matched model name
     
     if llm_backend == "api":
         logger.info("Backend: API only (local disabled by config)")
     elif llm_backend in ["auto", "local"]:
-        # Check Ollama availability
-        ollama_available = check_ollama_availability(local_model_name, endpoint=local_endpoint)
+        # Check Ollama availability - returns (bool, exact_model_name)
+        ollama_available, exact_model_name = check_ollama_availability(local_model_name, endpoint=local_endpoint)
         
         if ollama_available:
-            logger.info(f"Ollama is running with model: {local_model_name}")
+            logger.info(f"Ollama is running with model: {exact_model_name}")
         else:
             if llm_backend == "local":
                 logger.warning("Backend: LOCAL required but Ollama unavailable - falling back to API")
@@ -625,9 +674,9 @@ def score_segments(
                 logger.info("Backend: AUTO - Ollama unavailable, using API")
     else:
         logger.warning(f"Unknown llm_backend '{llm_backend}', defaulting to 'auto'")
-        ollama_available = check_ollama_availability(local_model_name, endpoint=local_endpoint)
+        ollama_available, exact_model_name = check_ollama_availability(local_model_name, endpoint=local_endpoint)
         if ollama_available:
-            logger.info(f"Ollama is running with model: {local_model_name}")
+            logger.info(f"Ollama is running with model: {exact_model_name}")
         else:
             logger.info("Backend: AUTO - Ollama unavailable, using API")
     
@@ -648,13 +697,13 @@ def score_segments(
     
     if ollama_available:
         effective_batch_size = 1  # Force single-segment processing for Ollama
-        logger.info("Local LLM detected → disabling batching (processing one segment at a time)")
+        logger.info("🔥 LOCAL LLM MODE: Ollama processes one segment at a time (no batching)")
         logger.info(f"Backend: Local LLM (Ollama)")
-        logger.info(f"✅ Will score {len(segments_to_score)} segments using LOCAL Ollama (one-by-one)")
+        logger.info(f"Will score {len(segments_to_score)} segments using LOCAL Ollama with keep_alive={local_keep_alive}")
     else:
         effective_batch_size = BATCH_SIZE
-        logger.info(f"Using API backend → batch processing enabled (batch_size={effective_batch_size})")
-        logger.info(f"✅ Will score {len(segments_to_score)} segments using API ({effective_batch_size} per batch)")
+        logger.info(f"☁️ API MODE: Batch processing enabled (batch_size={effective_batch_size})")
+        logger.info(f"Will score {len(segments_to_score)} segments using API ({effective_batch_size} per batch)")
     
     # Initialize AI client only when NOT using Ollama exclusively
     client = None
@@ -726,11 +775,12 @@ CRITICAL: You MUST respond with ONLY valid JSON.
                         ai_analysis = score_with_ollama(
                             segment=segment,
                             prompt=prompt,
-                            model_name=local_model_name,
+                            model_name=exact_model_name,  # ✅ Use exact matched model name
                             temperature=temperature,
-                            endpoint=local_endpoint
+                            endpoint=local_endpoint,
+                            keep_alive=local_keep_alive  # ✅ Memory management
                         )
-                        logger.debug(f"Segment {idx + 1}/{len(segments_to_score)}: scored with LOCAL Ollama")
+                        logger.debug(f"Segment {idx + 1}/{len(segments_to_score)}: scored with LOCAL Ollama ✅")
                         
                     except Exception as local_error:
                         logger.warning(f"Local LLM failed for segment {idx + 1}: {local_error}")
