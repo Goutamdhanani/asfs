@@ -58,7 +58,7 @@ def upload_to_tiktok_browser(
         # Navigate to TikTok upload page with network error handling
         logger.info("Navigating to TikTok upload page")
         try:
-            page.goto("https://www.tiktok.com/upload", wait_until="networkidle", timeout=30000)
+            page.goto("https://www.tiktok.com/upload", wait_until="domcontentloaded", timeout=60000)
         except Exception as nav_error:
             error_msg = str(nav_error).lower()
             if "net::" in error_msg or "timeout" in error_msg:
@@ -249,7 +249,7 @@ def _upload_to_tiktok_with_manager(
         # Navigate to TikTok upload page with network error handling
         logger.info("Navigating to TikTok upload page")
         try:
-            page.goto("https://www.tiktok.com/upload", wait_until="networkidle", timeout=30000)
+            page.goto("https://www.tiktok.com/upload", wait_until="domcontentloaded", timeout=60000)
         except Exception as nav_error:
             error_msg = str(nav_error).lower()
             if "net::" in error_msg or "timeout" in error_msg:
