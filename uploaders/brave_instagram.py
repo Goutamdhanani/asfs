@@ -12,6 +12,18 @@ from .brave_base import BraveBrowserBase
 
 logger = logging.getLogger(__name__)
 
+# Instagram Create button selectors (ordered by reliability)
+# Instagram frequently changes UI through A/B testing, so we try multiple strategies
+INSTAGRAM_CREATE_SELECTORS = [
+    'svg[aria-label*="New"]',  # Icon-based
+    'a[href*="create"]',  # Link-based
+    '[role="menuitem"]:has-text("Create")',  # Role-based menuitem
+    'button[role="button"]:has-text("Create")',  # Role-based button
+    'div[role="button"]:has-text("Create")',  # Div acting as button
+    '[aria-label*="Create"]',  # Generic aria-label
+    'text="Create"'  # Text fallback
+]
+
 
 def upload_to_instagram_browser(
     video_path: str,
@@ -58,21 +70,28 @@ def upload_to_instagram_browser(
             page.wait_for_timeout(60000)
             logger.info("Continuing with upload")
         
-        # Click "Create" button (+ icon)
+        # Click "Create" button (+ icon) - with multiple fallback selectors
         logger.info("Clicking Create button")
-        try:
-            # Common selectors for Create button:
-            # - svg[aria-label="New post"]
-            # - a[href="#"] containing "Create"
-            # - [role="link"] containing Create text
-            create_selector = 'svg[aria-label*="New"], a[href*="create"], [role="menuitem"]:has-text("Create")'
-            page.wait_for_selector(create_selector, timeout=10000)
-            browser.click_and_wait(create_selector, delay=2)
-        except Exception as e:
-            logger.warning(f"Primary Create selector failed, trying alternative: {e}")
-            # Alternative: look for specific icon or text
-            page.click('text="Create"')
-            browser.human_delay(2, 3)
+        create_clicked = False
+        
+        # Try multiple selectors due to Instagram's frequent A/B testing
+        for selector in INSTAGRAM_CREATE_SELECTORS:
+            try:
+                logger.debug(f"Trying Create selector: {selector}")
+                page.wait_for_selector(selector, timeout=3000)
+                element = page.query_selector(selector)
+                if element:
+                    element.click()
+                    browser.human_delay(2, 3)
+                    create_clicked = True
+                    logger.info(f"Create button clicked using selector: {selector}")
+                    break
+            except Exception as e:
+                logger.debug(f"Selector {selector} failed: {e}")
+                continue
+        
+        if not create_clicked:
+            raise Exception("Failed to find and click Create button with any selector")
         
         # Upload video file
         logger.info("Uploading video file")
@@ -249,31 +268,41 @@ def _upload_to_instagram_with_manager(
             page.wait_for_timeout(60000)
             logger.info("Continuing with upload")
         
-        # Click "Create" button (+ icon)
+        # Click "Create" button (+ icon) - with multiple fallback selectors
         logger.info("Clicking Create button")
-        try:
-            create_selector = 'svg[aria-label*="New"], a[href*="create"], [role="menuitem"]:has-text("Create")'
-            page.wait_for_selector(create_selector, timeout=10000)
-            element = page.query_selector(create_selector)
-            element.click()
-            page.wait_for_timeout(2000)
-        except Exception as e:
-            logger.warning(f"Primary Create selector failed, trying alternative: {e}")
-            page.click('text="Create"')
-            page.wait_for_timeout(random.randint(2000, 3000))
+        create_clicked = False
+        
+        # Try multiple selectors due to Instagram's frequent A/B testing
+        for selector in INSTAGRAM_CREATE_SELECTORS:
+            try:
+                logger.debug(f"Trying Create selector: {selector}")
+                page.wait_for_selector(selector, timeout=3000)
+                element = page.query_selector(selector)
+                if element:
+                    element.click()
+                    page.wait_for_timeout(2000)
+                    create_clicked = True
+                    logger.info(f"Create button clicked using selector: {selector}")
+                    break
+            except Exception as e:
+                logger.debug(f"Selector {selector} failed: {e}")
+                continue
+        
+        if not create_clicked:
+            raise Exception("Failed to find and click Create button with any selector")
         
         # Upload video file
         logger.info("Uploading video file")
         try:
             file_input_selector = 'input[type="file"]'
-            file_input = page.wait_for_selector(file_input_selector, timeout=10000)
+            file_input = page.wait_for_selector(file_input_selector, state="attached", timeout=10000)
             file_input.set_input_files(video_path)
         except Exception as e:
             logger.error(f"Failed to upload file: {e}")
             try:
                 page.click('button:has-text("Select from computer")')
                 page.wait_for_timeout(random.randint(1000, 2000))
-                file_input = page.wait_for_selector('input[type="file"]', timeout=10000)
+                file_input = page.wait_for_selector('input[type="file"]', state="attached", timeout=10000)
                 file_input.set_input_files(video_path)
             except:
                 raise
