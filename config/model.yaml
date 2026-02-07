@@ -33,3 +33,8 @@ model:
   # Local LLM Configuration (Ollama)
   local_model_name: "qwen3:latest"  # Supported: qwen3:latest, qwen3:8b, qwen3:14b
   local_endpoint: "http://localhost:11434"
+  
+  # Ollama-specific settings
+  local_keep_alive: "5m"  # How long to keep model in memory (5m, 10m, -1 for indefinite)
+  local_stream: false     # Disable streaming for simpler parsing (always false, enforced in code)
+  local_test_inference: true  # Test model before using in production (always true, enforced in code)
