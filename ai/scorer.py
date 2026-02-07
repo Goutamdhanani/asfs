@@ -230,9 +230,9 @@ def check_ollama_availability(model_name: str = "qwen3:latest", timeout: float =
     except requests.exceptions.Timeout as e:
         logger.debug(f"Ollama connection timeout: {e}")
         return False
-    except requests.exceptions.RequestException as e:
-        # Handles other HTTP errors (non-200 status codes, etc.)
-        logger.warning(f"Ollama HTTP request failed: {e}")
+    except requests.exceptions.HTTPError as e:
+        # Handles HTTP status errors (non-200 status codes)
+        logger.warning(f"Ollama HTTP error: {e}")
         return False
     except (ValueError, json.JSONDecodeError) as e:
         # Handle invalid JSON response
