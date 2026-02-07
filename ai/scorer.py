@@ -48,13 +48,28 @@ def extract_json(text: str) -> dict:
     text = re.sub(r'```json\s*', '', text)
     text = re.sub(r'```\s*', '', text)
     
-    # Extract JSON object (handles newlines and nested braces)
-    match = re.search(r'\{.*\}', text, re.DOTALL)
-    
-    if not match:
+    # Find start of JSON object
+    start_idx = text.find('{')
+    if start_idx == -1:
         raise ValueError(f"No JSON object found in model output: {text[:200]}")
     
-    json_str = match.group()
+    # Count braces to find matching closing brace
+    brace_count = 0
+    end_idx = start_idx
+    
+    for i in range(start_idx, len(text)):
+        if text[i] == '{':
+            brace_count += 1
+        elif text[i] == '}':
+            brace_count -= 1
+            if brace_count == 0:
+                end_idx = i + 1
+                break
+    
+    if brace_count != 0:
+        raise ValueError(f"Unbalanced braces in JSON: {text[start_idx:start_idx+200]}")
+    
+    json_str = text[start_idx:end_idx]
     
     try:
         return json.loads(json_str)
@@ -262,6 +277,7 @@ CRITICAL: You MUST respond with ONLY valid JSON.
         except Exception as e:
             logger.error(f"Failed to score segment {idx + 1}: {str(e)}")
             # Add fallback with zero scores
+            # Note: final_score appears both in ai_analysis and top-level for backward compatibility
             scored_segments.append({
                 **segment,
                 "ai_analysis": {
@@ -269,7 +285,7 @@ CRITICAL: You MUST respond with ONLY valid JSON.
                     "final_score": 0
                 },
                 "overall_score": 0.0,
-                "final_score": 0,
+                "final_score": 0,  # Top-level for easy access
                 "verdict": "skip",
                 "hook_score": 0,
                 "retention_score": 0,
