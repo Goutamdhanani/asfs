@@ -179,6 +179,28 @@ The system now supports **local inference** using Ollama with automatic fallback
 
 **Benefits:** No API costs, no rate limits, works offline, faster inference.
 
+**Configuration Best Practices:**
+
+Memory Management:
+- Set `local_keep_alive: "5m"` in `config/model.yaml` to reduce model reload times
+- Use `"10m"` or `"-1"` (indefinite) if processing many videos continuously
+- Default is `"5m"` (5 minutes)
+
+GPU Requirements:
+- `qwen3:8b` requires ~6GB VRAM
+- For GPUs with <6GB VRAM, use CPU mode: `OLLAMA_NO_GPU=1 ollama serve`
+- Or use smaller models like `qwen3:4b`
+
+Model Names:
+- Use exact names from `ollama list`
+- Example: `qwen3:8b` not `qwen3:latest` unless explicitly pulled with that tag
+- The system will auto-detect and use the exact available model name
+
+Troubleshooting:
+- If you see "memory allocation" errors: Use CPU mode or smaller model
+- If model not found: Run `ollama list` and update `local_model_name` in config
+- Test inference is performed automatically to verify GPU/memory capability
+
 #### Platform API Setup
 
 **TikTok:**
