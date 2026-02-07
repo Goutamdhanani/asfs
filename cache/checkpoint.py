@@ -97,7 +97,7 @@ class PipelineCache:
             logger.warning(f"Failed to load cache: {e}")
             return None
     
-    def save_state(self, video_path: str, state: Dict[str, Any], stage: str):
+    def save_state(self, video_path: str, state: Dict[str, Any], stage: str, config: dict = None):
         """
         Save pipeline state after completing a stage.
         
@@ -105,6 +105,7 @@ class PipelineCache:
             video_path: Path to video file
             state: Current pipeline state dictionary
             stage: Name of completed stage
+            config: Configuration used for this stage (for cache invalidation)
         """
         try:
             video_hash = get_video_hash(video_path)
@@ -114,6 +115,15 @@ class PipelineCache:
             state['last_stage'] = stage
             state['last_updated'] = datetime.now().isoformat()
             state['video_path'] = os.path.abspath(video_path)
+            
+            # Store config for ai_scoring stage
+            if stage == "ai_scoring" and config:
+                state["ai_config"] = {
+                    "endpoint": config.get("endpoint"),
+                    "model_name": config.get("model_name"),
+                    "min_score_threshold": config.get("min_score_threshold"),
+                    "timestamp": datetime.now().isoformat()
+                }
             
             # Store output file metadata if available
             if stage in state and 'transcript_path' in state[stage]:
@@ -208,3 +218,45 @@ class PipelineCache:
             return False
         
         return stage in state and state[stage].get('completed', False)
+    
+    def should_invalidate_ai_scoring(self, video_path: str, model_config: dict, state: Optional[Dict] = None) -> bool:
+        """
+        Check if AI scoring cache should be invalidated.
+        
+        Returns True if any of these changed:
+        - Model config (endpoint, model name)
+        - Score threshold
+        
+        Args:
+            video_path: Path to input video
+            model_config: Current model configuration
+            state: Optional pre-loaded pipeline state (to avoid re-loading)
+            
+        Returns:
+            True if cache should be invalidated
+        """
+        # Load state if not provided
+        if state is None:
+            state = self.load_state(video_path)
+        
+        if not state or "ai_scoring" not in state:
+            return False  # No cache, no need to invalidate
+        
+        cached_config = state.get("ai_config", {})
+        
+        # Check if model endpoint changed
+        if cached_config.get("endpoint") != model_config.get("endpoint"):
+            logger.info("AI scoring cache invalidated: endpoint changed")
+            return True
+        
+        # Check if model name changed
+        if cached_config.get("model_name") != model_config.get("model_name"):
+            logger.info("AI scoring cache invalidated: model changed")
+            return True
+        
+        # Check if threshold changed
+        if cached_config.get("min_score_threshold") != model_config.get("min_score_threshold"):
+            logger.info("AI scoring cache invalidated: threshold changed")
+            return True
+        
+        return False

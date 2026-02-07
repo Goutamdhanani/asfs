@@ -391,11 +391,14 @@ CRITICAL: You MUST respond with ONLY valid JSON.
         max_final = max(final_scores)
         avg_final = sum(final_scores) / len(final_scores) if final_scores else 0
         
+        # Get threshold from config
+        min_score_threshold = model_config.get('min_score_threshold', 6.0)
+        
         # Count high-quality segments
-        high_quality = sum(1 for s in scores if s >= 6.0)
+        high_quality = sum(1 for s in scores if s >= min_score_threshold)
         
         logger.info(f"Scoring complete: max={max_score:.1f}/10 (final={max_final:.1f}/100), avg={avg_score:.1f}/10 (final={avg_final:.1f}/100)")
-        logger.info(f"High-quality segments (score >= 6.0): {high_quality}")
+        logger.info(f"High-quality segments (score >= {min_score_threshold}): {high_quality}")
     else:
         logger.warning("No segments scored successfully")
     
