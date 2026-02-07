@@ -158,6 +158,27 @@ export YOUTUBE_TOKEN_FILE="path/to/token.json"
 2. Set `GITHUB_TOKEN` environment variable
 3. The system uses GitHub Models (OpenAI-compatible API) for free
 
+#### Local LLM Support (Optional)
+
+The system now supports **local inference** using Ollama with automatic fallback to remote APIs.
+
+**Quick Setup:**
+1. Install Ollama: https://ollama.ai/download
+2. Pull a supported model: `ollama pull qwen3:latest`
+3. Install Python SDK: `pip install ollama`
+4. Configure in `config/model.yaml`:
+   ```yaml
+   llm_backend: "auto"  # auto | local | api
+   local_model_name: "qwen3:latest"  # or qwen3:8b, qwen3:14b
+   ```
+
+**Backend Modes:**
+- `auto` (default): Try local → fallback to API if unavailable
+- `local`: Require local → fallback to API with warning if unavailable
+- `api`: Use API only, skip local
+
+**Benefits:** No API costs, no rate limits, works offline, faster inference.
+
 #### Platform API Setup
 
 **TikTok:**
