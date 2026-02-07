@@ -666,7 +666,7 @@ def score_segments(
         ollama_available, exact_model_name = check_ollama_availability(local_model_name, endpoint=local_endpoint)
         
         if ollama_available:
-            logger.info(f"Ollama is running with model: {exact_model_name} (will use exact name)")
+            logger.info(f"Ollama is running with model: {exact_model_name}")
         else:
             if llm_backend == "local":
                 logger.warning("Backend: LOCAL required but Ollama unavailable - falling back to API")
@@ -676,7 +676,7 @@ def score_segments(
         logger.warning(f"Unknown llm_backend '{llm_backend}', defaulting to 'auto'")
         ollama_available, exact_model_name = check_ollama_availability(local_model_name, endpoint=local_endpoint)
         if ollama_available:
-            logger.info(f"Ollama is running with model: {exact_model_name} (will use exact name)")
+            logger.info(f"Ollama is running with model: {exact_model_name}")
         else:
             logger.info("Backend: AUTO - Ollama unavailable, using API")
     
@@ -780,7 +780,7 @@ CRITICAL: You MUST respond with ONLY valid JSON.
                             endpoint=local_endpoint,
                             keep_alive=local_keep_alive  # ✅ Memory management
                         )
-                        logger.debug(f"Segment {idx + 1}/{len(segments_to_score)}: scored with LOCAL Ollama ({exact_model_name}) ✅")
+                        logger.debug(f"Segment {idx + 1}/{len(segments_to_score)}: scored with LOCAL Ollama ✅")
                         
                     except Exception as local_error:
                         logger.warning(f"Local LLM failed for segment {idx + 1}: {local_error}")

@@ -36,5 +36,3 @@ model:
   
   # Ollama-specific settings
   local_keep_alive: "5m"  # How long to keep model in memory (5m, 10m, -1 for indefinite)
-  local_stream: false     # Disable streaming for simpler parsing (always false, enforced in code)
-  local_test_inference: true  # Test model before using in production (always true, enforced in code)
