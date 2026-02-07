@@ -125,6 +125,16 @@ def run_pipeline(video_path: str, output_dir: str = "output", use_cache: bool = 
     logger.info("Loading configuration...")
     config = load_config()
     
+    # Log critical config values for debugging
+    logger.info("=" * 80)
+    logger.info("CONFIGURATION VALIDATION")
+    logger.info("=" * 80)
+    logger.info(f"Model endpoint: {config['model'].get('endpoint', 'not set')}")
+    logger.info(f"Model name: {config['model'].get('model_name', 'not set')}")
+    logger.info(f"Min score threshold: {config['model'].get('min_score_threshold', 'not set')}")
+    logger.info(f"Max segments to score: {config['model'].get('max_segments_to_score', 'not set')}")
+    logger.info("=" * 80)
+    
     # Initialize pipeline cache
     cache = PipelineCache(cache_dir=os.path.join(output_dir, "cache"))
     pipeline_state = {}
@@ -353,50 +363,43 @@ def run_pipeline(video_path: str, output_dir: str = "output", use_cache: bool = 
         logger.info("STAGE 5: AI HIGHLIGHT SCORING")
         logger.info("=" * 80)
         
-        # Check if this stage is cached
-        if cache.has_completed_stage(pipeline_state, 'ai_scoring'):
+        # Check if cache is valid
+        should_skip_scoring = (
+            use_cache and 
+            cache.has_completed_stage(pipeline_state, 'ai_scoring') and
+            not cache.should_invalidate_ai_scoring(video_path, config['model'])
+        )
+        
+        if should_skip_scoring:
+            # Load cached scores
             scored_segments = cache.get_stage_result(pipeline_state, 'ai_scoring', 'scored_segments')
             logger.info(f"[OK] SKIPPED (using cached result): {len(scored_segments)} scored segments")
-            
-            # Filter by minimum score threshold
-            min_score = config['model'].get('min_score_threshold', 6.0)
-            high_quality_segments = [
-                seg for seg in scored_segments 
-                if seg.get('overall_score', 0) >= min_score
-            ]
-            logger.info(f"[OK] High-quality segments (score >= {min_score}): {len(high_quality_segments)}")
             cache_hit = True
         else:
             cache_hit = False
-        
-        if not cache_hit:
+            
+            # Log reason for re-scoring
+            if not use_cache:
+                logger.info("Cache disabled via --no-cache flag")
+            elif cache.should_invalidate_ai_scoring(video_path, config['model']):
+                logger.info("Re-running AI scoring due to config changes")
+            
             audit.log_pipeline_event("ai_scoring", "started", video_path)
             
             try:
                 scored_segments = score_segments(all_candidates, config['model'])
                 logger.info(f"[OK] Scored segments: {len(scored_segments)}")
                 
-                # Filter by minimum score threshold
-                min_score = config['model'].get('min_score_threshold', 6.0)
-                high_quality_segments = [
-                    seg for seg in scored_segments 
-                    if seg.get('overall_score', 0) >= min_score
-                ]
-                
-                logger.info(f"[OK] High-quality segments (score >= {min_score}): {len(high_quality_segments)}")
-                
                 audit.log_pipeline_event("ai_scoring", "completed", video_path,
-                                        {"scored": len(scored_segments),
-                                         "high_quality": len(high_quality_segments)})
+                                        {"scored": len(scored_segments)})
                 
                 # Save to cache
                 if use_cache:
                     pipeline_state['ai_scoring'] = {
                         'completed': True,
-                        'scored_segments': scored_segments,
-                        'high_quality_count': len(high_quality_segments)
+                        'scored_segments': scored_segments
                     }
-                    cache.save_state(video_path, pipeline_state, 'ai_scoring')
+                    cache.save_state(video_path, pipeline_state, 'ai_scoring', config=config['model'])
                     
             except Exception as e:
                 logger.error(f"[FAIL] AI scoring failed: {str(e)}")
@@ -404,9 +407,41 @@ def run_pipeline(video_path: str, output_dir: str = "output", use_cache: bool = 
                                         error_message=str(e))
                 raise
         
+        # Filter by minimum score threshold
+        min_score_threshold = config['model'].get('min_score_threshold', 6.0)
+        
+        logger.info("=" * 80)
+        logger.info(f"FILTERING WITH THRESHOLD: {min_score_threshold}")
+        logger.info("=" * 80)
+        
+        high_quality_segments = [
+            seg for seg in scored_segments 
+            if seg.get('overall_score', 0) >= min_score_threshold
+        ]
+        
+        logger.info(f"[OK] High-quality segments (score >= {min_score_threshold}): {len(high_quality_segments)}")
+        
+        
         if not high_quality_segments:
-            logger.warning("No high-quality segments found")
-            logger.info("Try lowering the min_score_threshold in config/model.yaml")
+            logger.warning("=" * 80)
+            logger.warning("NO HIGH-QUALITY SEGMENTS FOUND")
+            logger.warning("=" * 80)
+            logger.warning(f"Current threshold: {min_score_threshold}")
+            
+            # Show score distribution
+            if scored_segments:
+                scores = [s.get("overall_score", 0) for s in scored_segments]
+                logger.warning(f"Score distribution:")
+                logger.warning(f"  Max: {max(scores):.1f}")
+                logger.warning(f"  Avg: {sum(scores)/len(scores):.1f}")
+                logger.warning(f"  Min: {min(scores):.1f}")
+            
+            logger.warning("To get clips:")
+            logger.warning("  1. Run with --no-cache to re-score segments")
+            logger.warning("  2. Lower min_score_threshold in config/model.yaml")
+            logger.warning("  3. Fix AI scoring JSON parsing (if scores are all 0)")
+            logger.warning("=" * 80)
+            
             audit.log_pipeline_event("pipeline", "completed", video_path,
                                     {"clips": 0, "reason": "No high-quality segments"})
             return
