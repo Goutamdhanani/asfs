@@ -331,12 +331,14 @@ CRITICAL: You MUST respond with ONLY valid JSON.
                 
                 # If final_score not provided, calculate weighted average from individual scores
                 # Individual scores are expected to be on 0-10 scale, final_score on 0-100 scale
+                # Weights are defined in prompt.txt and must sum to 1.0:
+                # hook (35%) + retention (25%) + emotion (20%) + completion (10%) + platform_fit (5%) + relatability (5%) = 100%
                 if final_score is None:
                     final_score = (
                         hook_score * 0.35 +
                         retention_score * 0.25 +
                         emotion_score * 0.20 +
-                        completion_score * 0.10 +
+                        completion_score * 0.10 +  # Fixed from 0.15 to match prompt.txt
                         platform_fit_score * 0.05 +
                         relatability_score * 0.05
                     ) * 10.0  # Scale from 0-10 range to 0-100 range

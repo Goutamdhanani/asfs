@@ -457,8 +457,8 @@ def run_pipeline(video_path: str, output_dir: str = "output", use_cache: bool = 
                 if max(scores) == 0:
                     logger.warning("")
                     logger.warning("All scores are 0! This indicates a problem with AI scoring:")
-                    logger.warning("  - Verify GITHUB_TOKEN environment variable is set and valid")
-                    logger.warning("  - Check API key has access to the model endpoint")
+                    logger.warning("  - Verify GITHUB_TOKEN (or AI API key) environment variable is set and valid")
+                    logger.warning("  - Check API key has correct permissions for the model endpoint")
                     logger.warning("  - Review logs above for API or JSON parsing errors")
                     logger.warning("")
             
