@@ -460,12 +460,16 @@ def run_pipeline(video_path: str, output_dir: str = "output", use_cache: bool = 
                     logger.warning("  - Verify GITHUB_TOKEN environment variable is set and valid")
                     logger.warning("  - Check API key has access to the model endpoint")
                     logger.warning("  - Review logs above for API or JSON parsing errors")
+                    logger.warning("")
             
-            logger.warning("To get clips:")
-            logger.warning("  1. If scores are all 0: Check API key validity and permissions")
-            logger.warning("  2. Lower min_score_threshold in config/model.yaml")
-            logger.warning("     (Cache will auto-invalidate and re-score)")
-            logger.warning("  3. Use --no-cache to force complete re-processing")
+            logger.warning("Suggestions:")
+            if scored_segments and max(scores) == 0:
+                logger.warning("  1. Fix the AI scoring issue above (API key, permissions, etc.)")
+                logger.warning("  2. Use --no-cache to force complete re-processing")
+            else:
+                logger.warning("  1. Lower min_score_threshold in config/model.yaml")
+                logger.warning("     (Cache will auto-invalidate and re-score)")
+                logger.warning("  2. Use --no-cache to force complete re-processing")
             logger.info("=" * 80)
             
             audit.log_pipeline_event("pipeline", "completed", video_path,

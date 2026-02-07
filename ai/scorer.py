@@ -291,7 +291,9 @@ CRITICAL: You MUST respond with ONLY valid JSON.
             # Parse AI response using extract_json_safe
             try:
                 ai_analysis = extract_json_safe(ai_response)
-                logger.info(f"[OK] JSON parsed successfully for segment {idx + 1}")
+                # Log parse success only for first segment to avoid excessive output
+                if idx == 0:
+                    logger.info(f"[OK] JSON parsed successfully for segment {idx + 1}")
             except ValueError as e:
                 logger.warning(f"[FAIL] Failed to parse AI response as JSON for segment {idx + 1}: {e}")
                 logger.warning(f"Response preview: {ai_response[:300]}")
