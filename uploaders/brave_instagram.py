@@ -60,8 +60,17 @@ def upload_to_instagram_browser(
         
         # Navigate to Instagram
         logger.info("Navigating to Instagram")
-        page.goto("https://www.instagram.com/", wait_until="networkidle")
-        browser.human_delay(2, 4)
+        try:
+            page.goto("https://www.instagram.com/", wait_until="domcontentloaded", timeout=60000)
+            browser.human_delay(2, 4)
+        except Exception as e:
+            if "Timeout" in str(e):
+                logger.error("Instagram navigation timed out. Possible causes:")
+                logger.error("  1. Slow internet connection")
+                logger.error("  2. Instagram may be temporarily unavailable")
+                logger.error("  3. Network firewall blocking Instagram")
+                raise Exception(f"Instagram navigation timeout: {e}")
+            raise
         
         # Check if user is logged in
         if "login" in page.url.lower() or page.query_selector('input[name="username"]'):
@@ -258,8 +267,17 @@ def _upload_to_instagram_with_manager(
         
         # Navigate to Instagram
         logger.info("Navigating to Instagram")
-        page.goto("https://www.instagram.com/", wait_until="networkidle")
-        page.wait_for_timeout(random.randint(2000, 4000))
+        try:
+            page.goto("https://www.instagram.com/", wait_until="domcontentloaded", timeout=60000)
+            page.wait_for_timeout(random.randint(2000, 4000))
+        except Exception as e:
+            if "Timeout" in str(e):
+                logger.error("Instagram navigation timed out. Possible causes:")
+                logger.error("  1. Slow internet connection")
+                logger.error("  2. Instagram may be temporarily unavailable")
+                logger.error("  3. Network firewall blocking Instagram")
+                raise Exception(f"Instagram navigation timeout: {e}")
+            raise
         
         # Check if user is logged in
         if "login" in page.url.lower() or page.query_selector('input[name="username"]'):
