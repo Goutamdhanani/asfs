@@ -40,6 +40,11 @@ import yaml
 import argparse
 from pathlib import Path
 from typing import Dict, List
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+# This MUST happen before any os.getenv() calls
+load_dotenv()
 
 # Import pipeline modules
 from transcript import transcribe_video, check_transcript_quality, extract_audio
@@ -588,6 +593,22 @@ def run_pipeline(video_path: str, output_dir: str = "output", use_cache: bool = 
         brave_path = os.getenv("BRAVE_PATH")  # Optional - auto-detect if not set
         brave_user_data_dir = os.getenv("BRAVE_USER_DATA_DIR")  # Required for persistent login
         brave_profile_directory = os.getenv("BRAVE_PROFILE_DIRECTORY", "Default")
+        
+        # DEBUG: Show what configuration is being used
+        logger.info("=" * 60)
+        logger.info("BRAVE BROWSER CONFIGURATION")
+        logger.info("=" * 60)
+        logger.info(f"Brave Path: {brave_path or 'Auto-detect'}")
+        logger.info(f"User Data Dir: {brave_user_data_dir or 'NOT SET (will use temp profile!)'}")
+        logger.info(f"Profile Directory: {brave_profile_directory}")
+        
+        if not brave_user_data_dir:
+            logger.critical(
+                "⚠️ CRITICAL: BRAVE_USER_DATA_DIR not set!\n"
+                "Users will be logged out every session.\n"
+                "Set BRAVE_USER_DATA_DIR in .env file."
+            )
+        logger.info("=" * 60)
         
         # Populate credentials with browser configuration
         upload_credentials = {
