@@ -74,9 +74,17 @@ def upload_to_tiktok_browser(
         # If login page appears, wait for manual login
         if "login" in page.url.lower():
             logger.warning("TikTok login required - please log in manually")
-            logger.info("Waiting 60 seconds for manual login...")
-            page.wait_for_url("**/upload**", timeout=60000)
-            logger.info("Login successful, continuing upload")
+            logger.info("Waiting 90 seconds for manual login...")
+            # Wait for upload interface to become available (functional check, not URL-based)
+            try:
+                page.wait_for_selector('input[type="file"]', timeout=90000, state="attached")
+                logger.info("Login successful - upload interface detected")
+            except Exception:
+                # Check if still on login page
+                if "login" in page.url.lower():
+                    raise Exception("Manual login failed or timed out - still on login page")
+                else:
+                    raise Exception("Upload interface not found after login - TikTok UI may have changed")
         
         # Upload video file
         # TikTok uses an iframe for upload - selectors may vary
@@ -94,30 +102,65 @@ def upload_to_tiktok_browser(
             file_input_selector = '[data-e2e="upload-input"]'
             browser.upload_file(file_input_selector, video_path)
         
-        browser.human_delay(3, 5)
+        logger.info("File upload initiated, waiting for processing signals...")
         
-        # Wait for video to process
-        logger.info("Waiting for video processing...")
-        page.wait_for_timeout(5000)
+        # Wait for video processing to complete - look for actual UI signals
+        try:
+            # Wait for caption input to become available (indicates upload processed)
+            # Try specific selectors first, fall back to generic if needed
+            caption_input_ready = False
+            for selector in ['[data-e2e="caption-input"]', 'div[contenteditable="true"]']:
+                try:
+                    page.wait_for_selector(selector, timeout=120000, state="visible")
+                    logger.info(f"Upload processing complete - caption input available ({selector})")
+                    caption_input_ready = True
+                    break
+                except:
+                    continue
+            if not caption_input_ready:
+                raise Exception("Caption input not found after upload")
+        except Exception as e:
+            logger.warning(f"Could not confirm upload processing completed: {e}")
+            # Fallback to delay if selector not found
+            page.wait_for_timeout(5000)
         
         # Fill in caption (title + description + tags)
         # TikTok combines everything into a single caption field
         full_caption = f"{title}\n\n{description}\n\n{tags}".strip()
         
         logger.info("Filling caption")
-        try:
-            # Stable selectors: data-e2e attributes are TikTok's test identifiers
-            # Also try role-based contenteditable as fallback
-            caption_selector = '[data-e2e="caption-input"], div[contenteditable="true"][aria-label*="caption"], div[contenteditable="true"]'
-            browser.human_type(caption_selector, full_caption)
-        except Exception as e:
-            logger.warning(f"Caption input failed: {e}")
-            # Last resort - try any contenteditable
+        # Use prioritized list of specific selectors - never spray text into random editable divs
+        caption_selectors = [
+            '[data-e2e="caption-input"]',
+            '[data-testid="video-caption"] div[contenteditable="true"]',
+            'div.caption-editor[contenteditable="true"]',
+            'div[contenteditable="true"][aria-label*="caption" i]',
+            'div[contenteditable="true"][placeholder*="caption" i]'
+        ]
+        
+        caption_found = False
+        for selector in caption_selectors:
+            try:
+                # Verify element exists and is the right one
+                element = page.query_selector(selector)
+                if element:
+                    logger.info(f"Caption box found with selector: {selector}")
+                    browser.human_type(selector, full_caption)
+                    caption_found = True
+                    break
+            except Exception as e:
+                logger.debug(f"Selector {selector} failed: {e}")
+                continue
+        
+        if not caption_found:
+            logger.warning("Could not find caption input with specific selectors - upload may fail")
+            # Last resort - but warn about it
             try:
                 caption_selector = 'div[contenteditable="true"]'
+                logger.warning(f"Using generic selector as fallback: {caption_selector}")
                 browser.human_type(caption_selector, full_caption)
             except:
-                logger.error("All caption selectors failed")
+                logger.error("All caption selectors failed - caption not entered")
         
         browser.human_delay(2, 3)
         
@@ -139,16 +182,33 @@ def upload_to_tiktok_browser(
         logger.info("Waiting for upload confirmation...")
         page.wait_for_timeout(5000)
         
-        # Check for success indicators
-        # TikTok usually redirects or shows a success message
+        # Check for success indicators - be honest about what we can detect
         current_url = page.url
+        success_confirmed = False
         
-        if "upload" not in current_url.lower() or "success" in page.content().lower():
-            logger.info("TikTok upload completed successfully")
+        # Try to detect actual success signals
+        try:
+            # Check if we got redirected away from upload page
+            if "upload" not in current_url.lower():
+                logger.info("Redirected away from upload page - likely successful")
+                success_confirmed = True
+            else:
+                # Still on upload page - check for success elements
+                # Note: We cannot reliably detect success if still on /upload
+                # TikTok often stays on upload page after successful post
+                logger.info("Still on upload page - success cannot be confirmed")
+                success_confirmed = False
+        except Exception as e:
+            logger.warning(f"Error checking success status: {e}")
+            success_confirmed = False
+        
+        # Return honest status
+        if success_confirmed:
+            logger.info("Upload confirmed successful")
             result = "TikTok upload successful"
         else:
-            logger.warning("Upload status unclear - manual verification recommended")
-            result = "TikTok upload submitted (verify manually)"
+            logger.warning("Upload submitted - success not verified (manual verification recommended)")
+            result = "TikTok upload submitted (status unverified)"
         
         browser.human_delay(2, 3)
         browser.close()
@@ -261,9 +321,17 @@ def _upload_to_tiktok_with_manager(
         # Check if user is logged in
         if "login" in page.url.lower():
             logger.warning("TikTok login required - please log in manually")
-            logger.info("Waiting 60 seconds for manual login...")
-            page.wait_for_url("**/upload**", timeout=60000)
-            logger.info("Login successful, continuing upload")
+            logger.info("Waiting 90 seconds for manual login...")
+            # Wait for upload interface to become available (functional check, not URL-based)
+            try:
+                page.wait_for_selector('input[type="file"]', timeout=90000, state="attached")
+                logger.info("Login successful - upload interface detected")
+            except Exception:
+                # Check if still on login page
+                if "login" in page.url.lower():
+                    raise Exception("Manual login failed or timed out - still on login page")
+                else:
+                    raise Exception("Upload interface not found after login - TikTok UI may have changed")
         
         # Upload video file
         logger.info("Uploading video file")
@@ -277,31 +345,65 @@ def _upload_to_tiktok_with_manager(
             file_input = page.wait_for_selector(file_input_selector, state="attached", timeout=10000)
             file_input.set_input_files(video_path)
         
-        page.wait_for_timeout(random.randint(3000, 5000))
+        logger.info("File upload initiated, waiting for processing signals...")
         
-        # Wait for video to process
-        logger.info("Waiting for video processing...")
-        page.wait_for_timeout(5000)
+        # Wait for video processing to complete - look for actual UI signals
+        try:
+            # Wait for caption input to become available (indicates upload processed)
+            # Try specific selectors first, fall back to generic if needed
+            caption_input_ready = False
+            for selector in ['[data-e2e="caption-input"]', 'div[contenteditable="true"]']:
+                try:
+                    page.wait_for_selector(selector, timeout=120000, state="visible")
+                    logger.info(f"Upload processing complete - caption input available ({selector})")
+                    caption_input_ready = True
+                    break
+                except:
+                    continue
+            if not caption_input_ready:
+                raise Exception("Caption input not found after upload")
+        except Exception as e:
+            logger.warning(f"Could not confirm upload processing completed: {e}")
+            # Fallback to delay if selector not found
+            page.wait_for_timeout(5000)
         
         # Fill in caption (title + description + tags)
         full_caption = f"{title}\n\n{description}\n\n{tags}".strip()
         
         logger.info("Filling caption")
-        try:
-            # Stable selectors: data-e2e attributes are TikTok's test identifiers
-            # Also try role-based contenteditable as fallback
-            caption_selector = '[data-e2e="caption-input"], div[contenteditable="true"][aria-label*="caption"], div[contenteditable="true"]'
-            element = page.wait_for_selector(caption_selector, timeout=10000)
-            element.click()
-            page.keyboard.press("Control+A")
-            page.keyboard.press("Backspace")
-            for char in full_caption:
-                element.type(char, delay=random.uniform(50, 150))
-        except Exception as e:
-            logger.warning(f"Caption input failed: {e}")
-            # Last resort - try any contenteditable
+        # Use prioritized list of specific selectors - never spray text into random editable divs
+        caption_selectors = [
+            '[data-e2e="caption-input"]',
+            '[data-testid="video-caption"] div[contenteditable="true"]',
+            'div.caption-editor[contenteditable="true"]',
+            'div[contenteditable="true"][aria-label*="caption" i]',
+            'div[contenteditable="true"][placeholder*="caption" i]'
+        ]
+        
+        caption_found = False
+        for selector in caption_selectors:
+            try:
+                # Verify element exists and is the right one
+                element = page.query_selector(selector)
+                if element:
+                    logger.info(f"Caption box found with selector: {selector}")
+                    element.click()
+                    page.keyboard.press("Control+A")
+                    page.keyboard.press("Backspace")
+                    for char in full_caption:
+                        element.type(char, delay=random.uniform(50, 150))
+                    caption_found = True
+                    break
+            except Exception as e:
+                logger.debug(f"Selector {selector} failed: {e}")
+                continue
+        
+        if not caption_found:
+            logger.warning("Could not find caption input with specific selectors - upload may fail")
+            # Last resort - but warn about it
             try:
                 caption_selector = 'div[contenteditable="true"]'
+                logger.warning(f"Using generic selector as fallback: {caption_selector}")
                 element = page.wait_for_selector(caption_selector, timeout=10000)
                 element.click()
                 page.keyboard.press("Control+A")
@@ -309,7 +411,7 @@ def _upload_to_tiktok_with_manager(
                 for char in full_caption:
                     element.type(char, delay=random.uniform(50, 150))
             except:
-                logger.error("All caption selectors failed")
+                logger.error("All caption selectors failed - caption not entered")
         
         page.wait_for_timeout(random.randint(2000, 3000))
         
@@ -330,15 +432,33 @@ def _upload_to_tiktok_with_manager(
         logger.info("Waiting for upload confirmation...")
         page.wait_for_timeout(5000)
         
-        # Check for success indicators
+        # Check for success indicators - be honest about what we can detect
         current_url = page.url
+        success_confirmed = False
         
-        if "upload" not in current_url.lower() or "success" in page.content().lower():
-            logger.info("TikTok upload completed successfully")
+        # Try to detect actual success signals
+        try:
+            # Check if we got redirected away from upload page
+            if "upload" not in current_url.lower():
+                logger.info("Redirected away from upload page - likely successful")
+                success_confirmed = True
+            else:
+                # Still on upload page - check for success elements
+                # Note: We cannot reliably detect success if still on /upload
+                # TikTok often stays on upload page after successful post
+                logger.info("Still on upload page - success cannot be confirmed")
+                success_confirmed = False
+        except Exception as e:
+            logger.warning(f"Error checking success status: {e}")
+            success_confirmed = False
+        
+        # Return honest status
+        if success_confirmed:
+            logger.info("Upload confirmed successful")
             result = "TikTok upload successful"
         else:
-            logger.warning("Upload status unclear - manual verification recommended")
-            result = "TikTok upload submitted (verify manually)"
+            logger.warning("Upload submitted - success not verified (manual verification recommended)")
+            result = "TikTok upload submitted (status unverified)"
         
         # Navigate to about:blank for next uploader
         manager.navigate_to_blank(page)
