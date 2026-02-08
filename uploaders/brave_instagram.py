@@ -71,7 +71,7 @@ def _wait_for_button_enabled(page: Page, button_text: str, timeout: int = 30000)
         return False
 
 
-def _find_caption_input(page: Page) -> Optional[object]:
+def _find_caption_input(page: Page):
     """
     Find the caption input field using specific selectors.
     
@@ -97,7 +97,11 @@ def _find_caption_input(page: Page) -> Optional[object]:
             if caption_box:
                 logger.info(f"Caption box found: {selector}")
                 return caption_box
-        except Exception:
+        except PlaywrightTimeoutError:
+            logger.debug(f"Caption selector {selector} not found, trying next")
+            continue
+        except Exception as e:
+            logger.debug(f"Error with caption selector {selector}: {e}")
             continue
     
     logger.error("Caption input not found with any selector")
@@ -181,7 +185,6 @@ def upload_to_instagram_browser(
         logger.info("Waiting for file input to appear")
         try:
             file_input_selector = 'input[type="file"][accept*="video"], input[type="file"][accept*="image"]'
-            logger.info("File input found, uploading file")
             browser.upload_file(file_input_selector, video_path)
             logger.info("File upload initiated")
         except Exception as e:
@@ -219,8 +222,12 @@ def upload_to_instagram_browser(
         if not caption_box:
             raise Exception("Caption input not found - cannot safely enter caption. UI may have changed.")
         
-        # Type caption
-        caption_box.fill(full_caption)
+        # Type caption with human-like delays for better bot detection avoidance
+        caption_box.click()
+        page.keyboard.press("Control+A")
+        page.keyboard.press("Backspace")
+        for char in full_caption:
+            caption_box.type(char, delay=random.uniform(50, 150))
         logger.info("Caption entered")
         
         browser.human_delay(2, 3)
