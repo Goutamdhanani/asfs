@@ -405,13 +405,25 @@ def upload_to_tiktok_browser(
         
         browser.human_delay(2, 3)
         
-        # Commit caption - click outside or blur to ensure it's saved
+        # Commit caption - blur the caption element to ensure it's saved
         logger.info("Committing caption...")
         try:
-            # Click outside the caption box to blur and commit
-            page.mouse.click(100, 100)  # Click in top-left corner (safe area)
-            page.wait_for_timeout(1000)
-            logger.info("Caption committed (blurred)")
+            # Try to blur the last used caption element
+            # Note: element variable should be in scope from caption filling above
+            try:
+                # Re-query the caption element for blur
+                caption_element = page.query_selector('div[contenteditable="true"]')
+                if caption_element:
+                    caption_element.evaluate("element => element.blur()")
+                    page.wait_for_timeout(1000)
+                    logger.info("Caption committed (blurred element)")
+                else:
+                    raise Exception("Caption element not found for blur")
+            except:
+                # Fallback: click body element to remove focus
+                page.evaluate("document.body.click()")
+                page.wait_for_timeout(1000)
+                logger.info("Caption committed (clicked body)")
         except Exception as e:
             logger.debug(f"Could not commit caption via blur: {e}")
         
@@ -771,13 +783,24 @@ def _upload_to_tiktok_with_manager(
         
         page.wait_for_timeout(random.randint(6000, 9000))
         
-        # Commit caption - click outside or blur to ensure it's saved
+        # Commit caption - blur the caption element to ensure it's saved
         logger.info("Committing caption...")
         try:
-            # Click outside the caption box to blur and commit
-            page.mouse.click(100, 100)  # Click in top-left corner (safe area)
-            page.wait_for_timeout(1000)
-            logger.info("Caption committed (blurred)")
+            # Try to blur the caption element that was just used
+            try:
+                # Re-query the caption element for blur
+                caption_element = page.query_selector('div[contenteditable="true"]')
+                if caption_element:
+                    caption_element.evaluate("element => element.blur()")
+                    page.wait_for_timeout(1000)
+                    logger.info("Caption committed (blurred element)")
+                else:
+                    raise Exception("Caption element not found for blur")
+            except:
+                # Fallback: click body element to remove focus
+                page.evaluate("document.body.click()")
+                page.wait_for_timeout(1000)
+                logger.info("Caption committed (clicked body)")
         except Exception as e:
             logger.debug(f"Could not commit caption via blur: {e}")
         

@@ -23,10 +23,10 @@ This data helps the system adapt to Instagram's A/B testing and UI changes.
 
 ## Data Retention
 
-- Files are automatically maintained by the automation system
+- JSON data files are automatically maintained by the automation system
 - Latest 50 entries are kept for each file
 - Timestamped entries allow historical analysis
-- Files are excluded from git commits (see .gitignore)
+- JSON data files (*.json) are excluded from git commits via .gitignore, but directory structure and documentation are committed
 
 ## Privacy
 

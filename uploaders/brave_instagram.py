@@ -179,7 +179,8 @@ def _select_post_option(page: Page, timeout: int = 45000) -> bool:
         
         # Save menu variants to knowledge directory for self-healing
         if menu_data:
-            knowledge_dir = Path("/home/runner/work/asfs/asfs/knowledge")
+            # Use relative path from project root
+            knowledge_dir = Path(__file__).parent.parent / "knowledge"
             knowledge_dir.mkdir(exist_ok=True)
             variants_file = knowledge_dir / "instagram_menu_variants.json"
             
