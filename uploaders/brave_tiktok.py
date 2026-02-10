@@ -173,10 +173,23 @@ def upload_to_tiktok_browser(
             # Stable selectors: data-e2e + role-based + text fallbacks
             # TikTok uses div[role="button"] or button elements
             post_button_selector = '[data-e2e="post-button"], div[role="button"]:has-text("Post"), button:has-text("Post")'
-            page.wait_for_selector(post_button_selector, timeout=5000)
-            browser.click_and_wait(post_button_selector, delay=3)
+            
+            # Wait for button to be available
+            post_button = page.wait_for_selector(post_button_selector, timeout=10000, state="visible")
+            
+            # CRITICAL FIX: Use no_wait_after=True to prevent browser context closure
+            # The Post button may trigger navigation/redirect which can close the context
+            # Using no_wait_after allows us to maintain control and capture the result
+            logger.info("Submitting post (preventing premature navigation)...")
+            post_button.click(no_wait_after=True)
+            logger.info("Post button clicked successfully")
+            
+            # Wait for submission to process
+            page.wait_for_timeout(3000)
         except Exception as e:
             logger.error(f"Failed to click Post button: {e}")
+            # Re-raise to ensure error is visible and not swallowed
+            raise Exception(f"TikTok Post button click failed: {e}")
         
         # Wait for upload confirmation
         logger.info("Waiting for upload confirmation...")
@@ -421,12 +434,23 @@ def _upload_to_tiktok_with_manager(
             # Stable selectors: data-e2e + role-based + text fallbacks
             # TikTok uses div[role="button"] or button elements
             post_button_selector = '[data-e2e="post-button"], div[role="button"]:has-text("Post"), button:has-text("Post")'
-            page.wait_for_selector(post_button_selector, timeout=5000)
-            post_button = page.query_selector(post_button_selector)
-            post_button.click()
+            
+            # Wait for button to be available
+            post_button = page.wait_for_selector(post_button_selector, timeout=10000, state="visible")
+            
+            # CRITICAL FIX: Use no_wait_after=True to prevent browser context closure
+            # The Post button may trigger navigation/redirect which can close the context
+            # Using no_wait_after allows us to maintain control and capture the result
+            logger.info("Submitting post (preventing premature navigation)...")
+            post_button.click(no_wait_after=True)
+            logger.info("Post button clicked successfully")
+            
+            # Wait for submission to process
             page.wait_for_timeout(3000)
         except Exception as e:
             logger.error(f"Failed to click Post button: {e}")
+            # Re-raise to ensure error is visible and not swallowed
+            raise Exception(f"TikTok Post button click failed: {e}")
         
         # Wait for upload confirmation
         logger.info("Waiting for upload confirmation...")

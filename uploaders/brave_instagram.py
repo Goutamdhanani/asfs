@@ -116,7 +116,7 @@ def _select_post_option(page: Page, timeout: int = 15000) -> bool:
     - "Post" (classic)
     - "Create post" (newer)
     - "Post to feed" (alternative)
-    - "Reel" (fallback - also opens file input)
+    - "Reel" (fallback - also opens file upload)
     
     Try all variants with retries for React animation delays.
     
@@ -135,7 +135,8 @@ def _select_post_option(page: Page, timeout: int = 15000) -> bool:
         'div[role="button"]:has-text("Reel")'  # Fallback - also allows file upload
     ]
     
-    max_retries = 2
+    max_retries = 3  # Increased retries for better reliability
+    attempted_selectors = []
     
     for attempt in range(max_retries):
         logger.debug(f"Attempt {attempt + 1}/{max_retries} to find Post option")
@@ -144,14 +145,16 @@ def _select_post_option(page: Page, timeout: int = 15000) -> bool:
             try:
                 button = page.locator(selector)
                 
+                # Increased timeout for better reliability with slow animations
                 # Try to interact with the first matching element
-                button.first.wait_for(state="visible", timeout=2000)
-                button.first.wait_for(state="enabled", timeout=2000)
+                button.first.wait_for(state="visible", timeout=3000)
+                button.first.wait_for(state="enabled", timeout=3000)
                 logger.info(f"Found Post option: {selector}")
                 button.first.click()
                 logger.info("Post option clicked successfully")
                 return True
             except Exception as e:
+                attempted_selectors.append(selector)
                 logger.debug(f"Selector {selector} failed: {e}")
                 continue
         
@@ -160,7 +163,7 @@ def _select_post_option(page: Page, timeout: int = 15000) -> bool:
             logger.debug("Menu may still be animating, waiting 3s before retry...")
             page.wait_for_timeout(3000)
     
-    logger.error("Post option button not found with any variant")
+    logger.error(f"Post option button not found with any variant. Attempted selectors: {attempted_selectors}")
     return False
 
 
@@ -232,8 +235,9 @@ def upload_to_instagram_browser(
             create_button = page.wait_for_selector(INSTAGRAM_CREATE_SELECTOR, timeout=10000)
             create_button.click()
             logger.info("Create button clicked")
-            # Wait for menu to fully render (human-like delay)
-            page.wait_for_timeout(random.randint(1500, 3500))
+            # Wait for menu to fully render - increased for better reliability
+            # Instagram's React-based menu needs time to animate and mount
+            page.wait_for_timeout(random.randint(2500, 4500))
         except PlaywrightTimeoutError:
             raise Exception("Instagram Create button not found - UI may have changed or user not logged in")
         
@@ -439,8 +443,9 @@ def _upload_to_instagram_with_manager(
             create_button = page.wait_for_selector(INSTAGRAM_CREATE_SELECTOR, timeout=10000)
             create_button.click()
             logger.info("Create button clicked")
-            # Wait for menu to fully render (human-like delay)
-            page.wait_for_timeout(random.randint(1500, 3500))
+            # Wait for menu to fully render - increased for better reliability
+            # Instagram's React-based menu needs time to animate and mount
+            page.wait_for_timeout(random.randint(2500, 4500))
         except PlaywrightTimeoutError:
             raise Exception("Instagram Create button not found - UI may have changed or user not logged in")
         
