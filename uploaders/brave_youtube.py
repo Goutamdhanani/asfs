@@ -126,7 +126,7 @@ def upload_to_youtube_browser(
         
         browser.human_delay(1, 2)
         
-        # Fill in description using selector intelligence (FIXED: was brittle)
+        # Fill in description using selector intelligence with multiple fallback strategies
         logger.info("Filling description")
         try:
             description_group = _youtube_selectors.get_group("description_input")
@@ -404,7 +404,7 @@ def _upload_to_youtube_with_manager(
         
         page.wait_for_timeout(random.randint(1000, 2000))
         
-        # Fill in description using selector intelligence (FIXED: was brittle)
+        # Fill in description using selector intelligence with multiple fallback strategies
         logger.info("Filling description")
         try:
             description_group = _youtube_selectors.get_group("description_input")

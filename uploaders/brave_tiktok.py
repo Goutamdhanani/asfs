@@ -90,7 +90,8 @@ def upload_to_tiktok_browser(
                 else:
                     raise Exception("Upload interface not found after login - TikTok UI may have changed")
         
-        # Upload video file using selector intelligence
+        # Upload video file using selector intelligence with adaptive ranking
+        # Automatically tries multiple selector strategies based on success history
         logger.info("Uploading video file")
         
         file_input_group = _tiktok_selectors.get_group("file_input")
@@ -427,7 +428,8 @@ def _upload_to_tiktok_with_manager(
                 else:
                     raise Exception("Upload interface not found after login - TikTok UI may have changed")
         
-        # Upload video file using selector intelligence
+        # Upload video file using selector intelligence with adaptive ranking
+        # Automatically tries multiple selector strategies based on success history
         logger.info("Uploading video file")
         
         file_input_group = _tiktok_selectors.get_group("file_input")
