@@ -188,8 +188,8 @@ def upload_to_tiktok_browser(
             page.wait_for_timeout(3000)
         except Exception as e:
             logger.error(f"Failed to click Post button: {e}")
-            # Re-raise to ensure error is visible and not swallowed
-            raise Exception(f"TikTok Post button click failed: {e}")
+            # Re-raise with context to preserve exception chain
+            raise Exception(f"TikTok Post button click failed: {e}") from e
         
         # Wait for upload confirmation
         logger.info("Waiting for upload confirmation...")
@@ -449,8 +449,8 @@ def _upload_to_tiktok_with_manager(
             page.wait_for_timeout(3000)
         except Exception as e:
             logger.error(f"Failed to click Post button: {e}")
-            # Re-raise to ensure error is visible and not swallowed
-            raise Exception(f"TikTok Post button click failed: {e}")
+            # Re-raise with context to preserve exception chain
+            raise Exception(f"TikTok Post button click failed: {e}") from e
         
         # Wait for upload confirmation
         logger.info("Waiting for upload confirmation...")
