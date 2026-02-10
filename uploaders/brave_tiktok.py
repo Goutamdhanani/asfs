@@ -8,6 +8,7 @@ import os
 import random
 import logging
 from typing import Optional
+from playwright.sync_api import Page
 from .brave_base import BraveBrowserBase
 from .selectors import get_tiktok_selectors, try_selectors_with_page
 
