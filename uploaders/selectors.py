@@ -201,20 +201,43 @@ def get_instagram_selectors() -> SelectorManager:
         name="post_option",
         description="Post/Reel option in Create menu"
     )
+    # Priority 1: SVG aria-label (most stable)
+    post_option_group.add_selector(
+        value='a:has(svg[aria-label="Post"])',
+        priority=1,
+        description="Link with Post SVG aria-label (most stable)"
+    )
+    post_option_group.add_selector(
+        value='a[role="link"]:has(svg[aria-label="Post"])',
+        priority=1,
+        description="Link role with Post SVG aria-label"
+    )
+    # Priority 2: Text-based with link role
+    post_option_group.add_selector(
+        value='a:has-text("Post")',
+        priority=2,
+        description="Link with Post text"
+    )
+    post_option_group.add_selector(
+        value='a[role="link"]:has-text("Post")',
+        priority=2,
+        description="Link role with Post text (hybrid)"
+    )
+    # Priority 3: Legacy button-based selectors (fallback)
     post_option_group.add_selector(
         value='div[role="button"]:has-text("Post")',
         priority=3,
-        description="Classic Post option"
+        description="Classic Post option (legacy)"
     )
     post_option_group.add_selector(
         value='div[role="button"]:has-text("Create post")',
         priority=3,
-        description="Newer variant"
+        description="Newer variant (legacy)"
     )
     post_option_group.add_selector(
         value='div[role="button"]:has-text("Post to feed")',
         priority=3,
-        description="Alternative variant"
+        description="Alternative variant (legacy)"
     )
     post_option_group.add_selector(
         value='div[role="button"]:has-text("Reel")',
@@ -382,19 +405,29 @@ def get_tiktok_selectors() -> SelectorManager:
         description="Post/Submit button"
     )
     post_button_group.add_selector(
-        value='[data-e2e="post-button"]',
+        value='button[data-e2e="post_video_button"]',
         priority=1,
-        description="Official test attribute"
+        description="Official post video button (most stable)"
     )
     post_button_group.add_selector(
-        value='div[role="button"]:has-text("Post"):not(:has-text("Discard"))',
-        priority=3,
-        description="Role-based with text (excluding Discard)"
+        value='[data-e2e="post-button"]',
+        priority=1,
+        description="Official test attribute (alternative)"
+    )
+    post_button_group.add_selector(
+        value='button[data-e2e="post-button"]',
+        priority=1,
+        description="Button with post test attribute"
     )
     post_button_group.add_selector(
         value='button:has-text("Post"):not(:has-text("Discard"))',
         priority=3,
-        description="Button element with text"
+        description="Button element with text (avoid class names)"
+    )
+    post_button_group.add_selector(
+        value='div[role="button"]:has-text("Post"):not(:has-text("Discard"))',
+        priority=4,
+        description="Role-based with text (excluding Discard) - less stable"
     )
     manager.add_group(post_button_group)
     

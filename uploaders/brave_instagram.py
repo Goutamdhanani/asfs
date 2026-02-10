@@ -113,8 +113,12 @@ def _select_post_option(page: Page, timeout: int = 45000) -> bool:
     """
     Click the Post/Create option after opening Create menu.
     
-    Instagram A/B tests multiple UI variants and now defaults to Reel.
-    Uses selector intelligence to try all known variants with adaptive ranking.
+    Instagram A/B tests multiple UI variants and now uses <a role="link"> elements.
+    Waits for menu container to be ready, then uses prioritized selectors:
+    1. a:has(svg[aria-label="Post"]) - most stable
+    2. a:has-text("Post") - text-based
+    3. a[role="link"]:has-text("Post") - hybrid
+    4. Legacy div[role="button"] selectors - fallback
     
     Args:
         page: Playwright Page object
@@ -123,6 +127,90 @@ def _select_post_option(page: Page, timeout: int = 45000) -> bool:
     Returns:
         True if clicked successfully, False otherwise
     """
+    import json
+    from pathlib import Path
+    
+    # Wait for menu container to be fully open and ready
+    logger.info("Waiting for Create menu container to be ready...")
+    try:
+        # Wait for menu container to appear (aria-hidden="false" indicates open menu)
+        menu_container = page.wait_for_selector(
+            'div[aria-hidden="false"]',
+            timeout=15000,
+            state="visible"
+        )
+        logger.info("Create menu container is open and ready")
+        # Give React time to fully render menu items
+        page.wait_for_timeout(2000)
+    except Exception as e:
+        logger.warning(f"Could not confirm menu container ready: {e}")
+    
+    # Log menu items for debugging and self-healing
+    try:
+        logger.info("Analyzing menu items...")
+        menu_items = page.locator('a[role="link"]').all()
+        menu_data = []
+        
+        for idx, item in enumerate(menu_items[:10]):  # Limit to first 10 items
+            try:
+                text = item.inner_text(timeout=1000) if item.is_visible() else ""
+                aria_label = item.get_attribute('aria-label') or ""
+                
+                # Check for SVG aria-label inside the link
+                svg_aria = ""
+                try:
+                    svg = item.locator('svg').first
+                    if svg:
+                        svg_aria = svg.get_attribute('aria-label') or ""
+                except:
+                    pass
+                
+                item_info = {
+                    "order": idx,
+                    "text": text.strip(),
+                    "aria_label": aria_label,
+                    "svg_aria_label": svg_aria
+                }
+                menu_data.append(item_info)
+                logger.debug(f"Menu item {idx}: text='{text.strip()}', svg_aria='{svg_aria}'")
+            except Exception as e:
+                logger.debug(f"Could not analyze menu item {idx}: {e}")
+                continue
+        
+        # Save menu variants to knowledge directory for self-healing
+        if menu_data:
+            knowledge_dir = Path("/home/runner/work/asfs/asfs/knowledge")
+            knowledge_dir.mkdir(exist_ok=True)
+            variants_file = knowledge_dir / "instagram_menu_variants.json"
+            
+            try:
+                # Load existing variants if file exists
+                existing_variants = []
+                if variants_file.exists():
+                    with open(variants_file, 'r') as f:
+                        existing_variants = json.load(f)
+                
+                # Add timestamp to new data
+                from datetime import datetime
+                new_entry = {
+                    "timestamp": datetime.now().isoformat(),
+                    "menu_items": menu_data
+                }
+                
+                # Append new entry (keep last 50 entries)
+                existing_variants.append(new_entry)
+                existing_variants = existing_variants[-50:]
+                
+                # Save back to file
+                with open(variants_file, 'w') as f:
+                    json.dump(existing_variants, f, indent=2)
+                
+                logger.info(f"Logged {len(menu_data)} menu items to {variants_file}")
+            except Exception as e:
+                logger.warning(f"Could not save menu variants: {e}")
+    except Exception as e:
+        logger.warning(f"Could not analyze menu items: {e}")
+    
     post_option_group = _instagram_selectors.get_group("post_option")
     if not post_option_group:
         logger.error("Post option selector group not found in selector manager")
@@ -141,8 +229,15 @@ def _select_post_option(page: Page, timeout: int = 45000) -> bool:
                 # Increased timeout by 3x for slow networks (3s → 9s)
                 # Try to interact with the first matching element
                 button.first.wait_for(state="visible", timeout=9000)
-                button.first.wait_for(state="enabled", timeout=9000)
-                logger.info(f"Found Post option: {selector.value}")
+                
+                # For link elements, check if they're enabled (not disabled)
+                if 'a[role="link"]' in selector.value or 'a:has' in selector.value:
+                    # Links don't have enabled state, check if clickable
+                    logger.info(f"Found Post option (link): {selector.value}")
+                else:
+                    button.first.wait_for(state="enabled", timeout=9000)
+                    logger.info(f"Found Post option (button): {selector.value}")
+                
                 button.first.click()
                 logger.info("Post option clicked successfully")
                 
@@ -158,6 +253,17 @@ def _select_post_option(page: Page, timeout: int = 45000) -> bool:
         if attempt < max_retries - 1:
             logger.debug("Menu may still be animating, waiting 9s before retry...")
             page.wait_for_timeout(9000)
+    
+    # Fallback: Try to click first visible menu item if all selectors failed
+    logger.warning("All Post selectors failed - attempting fallback: click first menu item")
+    try:
+        first_item = page.locator('a[role="link"]').first
+        if first_item.is_visible():
+            first_item.click()
+            logger.warning("Clicked first menu item as fallback")
+            return True
+    except Exception as e:
+        logger.error(f"Fallback also failed: {e}")
     
     logger.error(f"Post option button not found with any variant after {max_retries} retries")
     return False

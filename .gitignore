@@ -78,3 +78,6 @@ dist/
 
 # UI temp files
 ui_settings.json
+
+# Knowledge directory data (keep structure, not logs)
+knowledge/*.json

@@ -26,6 +26,201 @@ TIKTOK_NETWORK_ERROR_MESSAGES = [
 ]
 
 
+def _wait_for_processing_complete(page: Page, timeout: int = 360000) -> bool:
+    """
+    Wait for TikTok video processing to complete.
+    
+    Looks for signals that processing is done:
+    - Progress bar disappears
+    - "Processing" text disappears
+    - Caption input becomes visible and interactive
+    
+    Args:
+        page: Playwright Page object
+        timeout: Maximum wait time in milliseconds (default: 6 minutes)
+        
+    Returns:
+        True if processing confirmed complete, False otherwise
+    """
+    logger.info("Waiting for video processing to complete...")
+    
+    # Wait for any progress bars or "Processing" text to disappear
+    try:
+        # Check if processing indicator exists
+        processing_indicators = [
+            'text="Processing"',
+            '[class*="progress"]',
+            '[class*="loading"]',
+            'text="Uploading"'
+        ]
+        
+        for indicator in processing_indicators:
+            try:
+                if page.locator(indicator).count() > 0:
+                    logger.debug(f"Found processing indicator: {indicator}, waiting for it to disappear...")
+                    page.wait_for_selector(indicator, state="hidden", timeout=timeout)
+                    logger.info(f"Processing indicator disappeared: {indicator}")
+            except Exception:
+                # Indicator not found or already gone
+                pass
+    except Exception as e:
+        logger.debug(f"Error checking for processing indicators: {e}")
+    
+    # Wait for caption input to be visible (primary signal that upload is ready)
+    caption_group = _tiktok_selectors.get_group("caption_input")
+    if caption_group:
+        selector_value, caption_element = try_selectors_with_page(
+            page,
+            caption_group,
+            timeout=timeout,
+            state="visible"
+        )
+        
+        if caption_element:
+            logger.info("Upload processing complete - caption input available")
+            return True
+        else:
+            logger.warning("Could not confirm upload processing with caption selector")
+            return False
+    else:
+        # Legacy fallback
+        try:
+            caption_input_ready = False
+            for selector in ['div[contenteditable="true"]', '[data-e2e="caption-input"]']:
+                try:
+                    page.wait_for_selector(selector, timeout=timeout, state="visible")
+                    logger.info(f"Upload processing complete - caption input available ({selector})")
+                    caption_input_ready = True
+                    break
+                except:
+                    continue
+            return caption_input_ready
+        except Exception as e:
+            logger.warning(f"Could not confirm upload processing completed: {e}")
+            return False
+
+
+def _validate_post_button_state(page: Page, button_element) -> bool:
+    """
+    Validate that the post button is in the correct state to be clicked.
+    
+    Checks:
+    - aria-disabled is not "true"
+    - data-loading is not "true"
+    - Button is visible and in viewport
+    
+    Args:
+        page: Playwright Page object
+        button_element: The button element to validate
+        
+    Returns:
+        True if button is ready to click, False otherwise
+    """
+    try:
+        # Check aria-disabled attribute
+        aria_disabled = button_element.get_attribute('aria-disabled')
+        if aria_disabled == "true":
+            logger.warning("Post button is aria-disabled, not ready to click")
+            return False
+        
+        # Check data-loading attribute
+        data_loading = button_element.get_attribute('data-loading')
+        if data_loading == "true":
+            logger.warning("Post button is loading, not ready to click")
+            return False
+        
+        # Check if button is visible
+        if not button_element.is_visible():
+            logger.warning("Post button is not visible")
+            return False
+        
+        logger.info("Post button state validated - ready to click")
+        return True
+    except Exception as e:
+        logger.warning(f"Error validating post button state: {e}")
+        # If we can't validate, assume it's ready (fail open)
+        return True
+
+
+def _click_post_button_with_validation(page: Page, post_button, max_retries: int = 3) -> bool:
+    """
+    Click the post button with state validation and retry logic.
+    
+    Ensures:
+    - Button is in valid state (not disabled, not loading)
+    - Button is scrolled into view
+    - Handles potential overlays with force click fallback
+    
+    Args:
+        page: Playwright Page object
+        post_button: The button element to click
+        max_retries: Maximum number of retry attempts
+        
+    Returns:
+        True if clicked successfully, False otherwise
+    """
+    for attempt in range(max_retries):
+        try:
+            logger.info(f"Attempting to click post button (attempt {attempt + 1}/{max_retries})")
+            
+            # Wait a moment for any final processing
+            if attempt > 0:
+                page.wait_for_timeout(3000)
+            
+            # Validate button state
+            if not _validate_post_button_state(page, post_button):
+                logger.warning("Post button not in valid state, waiting...")
+                page.wait_for_timeout(5000)
+                continue
+            
+            # Scroll button into view if needed
+            try:
+                post_button.scroll_into_view_if_needed(timeout=5000)
+                logger.info("Post button scrolled into view")
+            except Exception as e:
+                logger.debug(f"Could not scroll button into view: {e}")
+            
+            # Try normal click first
+            try:
+                logger.info("Clicking post button (normal click)...")
+                post_button.click(timeout=10000, no_wait_after=True)
+                logger.info("Post button clicked successfully")
+                return True
+            except Exception as click_error:
+                logger.warning(f"Normal click failed: {click_error}")
+                
+                # If overlay present, try force click
+                if "intercept" in str(click_error).lower() or "overlay" in str(click_error).lower():
+                    logger.info("Overlay detected, attempting force click...")
+                    try:
+                        post_button.click(force=True, timeout=10000, no_wait_after=True)
+                        logger.info("Post button force clicked successfully")
+                        return True
+                    except Exception as force_error:
+                        logger.error(f"Force click also failed: {force_error}")
+                        if attempt < max_retries - 1:
+                            continue
+                        else:
+                            return False
+                else:
+                    # Other click error, retry
+                    if attempt < max_retries - 1:
+                        logger.warning(f"Click failed, retrying...")
+                        continue
+                    else:
+                        return False
+        
+        except Exception as e:
+            logger.error(f"Error in click attempt {attempt + 1}: {e}")
+            if attempt < max_retries - 1:
+                continue
+            else:
+                return False
+    
+    logger.error("Failed to click post button after all retries")
+    return False
+
+
 def upload_to_tiktok_browser(
     video_path: str,
     title: str,
@@ -130,41 +325,30 @@ def upload_to_tiktok_browser(
             page.wait_for_timeout(5000)
         
         # Wait for video processing to complete - look for actual UI signals
-        # Use selector intelligence to detect caption input (indicates upload processed)
-        logger.info("Waiting for upload processing to complete...")
+        # Use new state validation helper
+        if not _wait_for_processing_complete(page, timeout=360000):
+            logger.warning("Could not confirm processing complete, proceeding anyway...")
         
+        # Ensure caption box is visible before typing
+        logger.info("Ensuring caption box is ready...")
         caption_group = _tiktok_selectors.get_group("caption_input")
         if caption_group:
-            # Try with extended timeout for upload processing
             selector_value, caption_element = try_selectors_with_page(
                 page,
                 caption_group,
-                timeout=360000,  # 6 minutes for large video processing
+                timeout=30000,
                 state="visible"
             )
-            
-            if caption_element:
-                logger.info(f"Upload processing complete - caption input available")
-            else:
-                logger.warning("Could not confirm upload processing with caption selector")
-                page.wait_for_timeout(15000)
+            if not caption_element:
+                logger.error("Caption box not visible after processing")
+                raise Exception("Caption input not found after upload")
         else:
-            # Legacy fallback
+            # Legacy check
             try:
-                caption_input_ready = False
-                for selector in ['[data-e2e="caption-input"]', 'div[contenteditable="true"]']:
-                    try:
-                        page.wait_for_selector(selector, timeout=360000, state="visible")
-                        logger.info(f"Upload processing complete - caption input available ({selector})")
-                        caption_input_ready = True
-                        break
-                    except:
-                        continue
-                if not caption_input_ready:
-                    raise Exception("Caption input not found after upload")
+                page.wait_for_selector('div[contenteditable="true"]', timeout=30000, state="visible")
             except Exception as e:
-                logger.warning(f"Could not confirm upload processing completed: {e}")
-                page.wait_for_timeout(15000)
+                logger.error(f"Caption box not visible: {e}")
+                raise Exception("Caption input not found after upload")
         
         # Fill in caption (title + description + tags)
         full_caption = f"{title}\n\n{description}\n\n{tags}".strip()
@@ -221,28 +405,53 @@ def upload_to_tiktok_browser(
         
         browser.human_delay(2, 3)
         
+        # Commit caption - click outside or blur to ensure it's saved
+        logger.info("Committing caption...")
+        try:
+            # Click outside the caption box to blur and commit
+            page.mouse.click(100, 100)  # Click in top-left corner (safe area)
+            page.wait_for_timeout(1000)
+            logger.info("Caption committed (blurred)")
+        except Exception as e:
+            logger.debug(f"Could not commit caption via blur: {e}")
+        
         # Optional: Set privacy to Public (usually default)
         # Selector may be: [data-e2e="privacy-select"]
         
-        # Click Post/Upload button using selector intelligence
-        # Stable selectors: data-e2e + role-based + text fallbacks (prioritized)
-        logger.info("Clicking Post button")
+        # Click Post/Upload button with state validation
+        # Use new helper function for robust clicking
+        logger.info("Preparing to click Post button with state validation")
         try:
             post_button_group = _tiktok_selectors.get_group("post_button")
             if not post_button_group:
                 # Legacy fallback
                 post_selectors = [
+                    'button[data-e2e="post_video_button"]',
                     '[data-e2e="post-button"]',
-                    'div[role="button"]:has-text("Post")',
+                    'button[data-e2e="post-button"]',
                     'button:has-text("Post")'
                 ]
-                post_button_selector = ', '.join([f'{s}:not(:has-text("Discard"))' for s in post_selectors])
                 
-                post_button = page.wait_for_selector(post_button_selector, timeout=30000, state="visible")
+                post_button = None
+                for selector in post_selectors:
+                    try:
+                        post_button = page.wait_for_selector(
+                            f'{selector}:not(:has-text("Discard"))',
+                            timeout=30000,
+                            state="visible"
+                        )
+                        if post_button:
+                            logger.info(f"Post button found with: {selector}")
+                            break
+                    except:
+                        continue
                 
-                logger.info("Submitting post (preventing premature navigation)...")
-                post_button.click(no_wait_after=True)
-                logger.info("Post button clicked successfully")
+                if not post_button:
+                    raise Exception("Post button not found with any selector")
+                
+                # Use validation and click helper
+                if not _click_post_button_with_validation(page, post_button):
+                    raise Exception("Failed to click post button after validation")
             else:
                 # Use selector intelligence
                 selector_value, post_button = try_selectors_with_page(
@@ -256,10 +465,10 @@ def upload_to_tiktok_browser(
                     logger.error("Post button not found with any selector")
                     raise Exception("TikTok Post button not found")
                 
-                # CRITICAL: Use no_wait_after=True to prevent browser context closure
-                logger.info("Submitting post (preventing premature navigation)...")
-                post_button.click(no_wait_after=True)
-                logger.info("Post button clicked successfully")
+                # Use validation and click helper
+                logger.info(f"Post button found with: {selector_value[:60]}")
+                if not _click_post_button_with_validation(page, post_button):
+                    raise Exception("Failed to click post button after validation")
             
             # CRITICAL: Wait for load state after post to detect success/navigation
             try:
@@ -469,41 +678,30 @@ def _upload_to_tiktok_with_manager(
             logger.debug("Network idle timeout after upload, using fallback delay")
             page.wait_for_timeout(5000)
         
-        # Wait for video processing to complete using selector intelligence
-        logger.info("Waiting for upload processing to complete...")
+        # Wait for video processing to complete using new state validation helper
+        if not _wait_for_processing_complete(page, timeout=360000):
+            logger.warning("Could not confirm processing complete, proceeding anyway...")
         
+        # Ensure caption box is visible before typing
+        logger.info("Ensuring caption box is ready...")
         caption_group = _tiktok_selectors.get_group("caption_input")
         if caption_group:
-            # Try with extended timeout for upload processing
             selector_value, caption_element = try_selectors_with_page(
                 page,
                 caption_group,
-                timeout=360000,  # 6 minutes for large video processing
+                timeout=30000,
                 state="visible"
             )
-            
-            if caption_element:
-                logger.info(f"Upload processing complete - caption input available")
-            else:
-                logger.warning("Could not confirm upload processing with caption selector")
-                page.wait_for_timeout(15000)
+            if not caption_element:
+                logger.error("Caption box not visible after processing")
+                raise Exception("Caption input not found after upload")
         else:
-            # Legacy fallback
+            # Legacy check
             try:
-                caption_input_ready = False
-                for selector in ['[data-e2e="caption-input"]', 'div[contenteditable="true"]']:
-                    try:
-                        page.wait_for_selector(selector, timeout=360000, state="visible")
-                        logger.info(f"Upload processing complete - caption input available ({selector})")
-                        caption_input_ready = True
-                        break
-                    except:
-                        continue
-                if not caption_input_ready:
-                    raise Exception("Caption input not found after upload")
+                page.wait_for_selector('div[contenteditable="true"]', timeout=30000, state="visible")
             except Exception as e:
-                logger.warning(f"Could not confirm upload processing completed: {e}")
-                page.wait_for_timeout(15000)
+                logger.error(f"Caption box not visible: {e}")
+                raise Exception("Caption input not found after upload")
         
         # Fill in caption (title + description + tags)
         full_caption = f"{title}\n\n{description}\n\n{tags}".strip()
@@ -573,25 +771,50 @@ def _upload_to_tiktok_with_manager(
         
         page.wait_for_timeout(random.randint(6000, 9000))
         
-        # Click Post/Upload button using selector intelligence
-        # Stable selectors: data-e2e + role-based + text fallbacks (prioritized)
-        logger.info("Clicking Post button")
+        # Commit caption - click outside or blur to ensure it's saved
+        logger.info("Committing caption...")
+        try:
+            # Click outside the caption box to blur and commit
+            page.mouse.click(100, 100)  # Click in top-left corner (safe area)
+            page.wait_for_timeout(1000)
+            logger.info("Caption committed (blurred)")
+        except Exception as e:
+            logger.debug(f"Could not commit caption via blur: {e}")
+        
+        # Click Post/Upload button with state validation
+        # Use new helper function for robust clicking
+        logger.info("Preparing to click Post button with state validation")
         try:
             post_button_group = _tiktok_selectors.get_group("post_button")
             if not post_button_group:
                 # Legacy fallback
                 post_selectors = [
+                    'button[data-e2e="post_video_button"]',
                     '[data-e2e="post-button"]',
-                    'div[role="button"]:has-text("Post")',
+                    'button[data-e2e="post-button"]',
                     'button:has-text("Post")'
                 ]
-                post_button_selector = ', '.join([f'{s}:not(:has-text("Discard"))' for s in post_selectors])
                 
-                post_button = page.wait_for_selector(post_button_selector, timeout=30000, state="visible")
+                post_button = None
+                for selector in post_selectors:
+                    try:
+                        post_button = page.wait_for_selector(
+                            f'{selector}:not(:has-text("Discard"))',
+                            timeout=30000,
+                            state="visible"
+                        )
+                        if post_button:
+                            logger.info(f"Post button found with: {selector}")
+                            break
+                    except:
+                        continue
                 
-                logger.info("Submitting post (preventing premature navigation)...")
-                post_button.click(no_wait_after=True)
-                logger.info("Post button clicked successfully")
+                if not post_button:
+                    raise Exception("Post button not found with any selector")
+                
+                # Use validation and click helper
+                if not _click_post_button_with_validation(page, post_button):
+                    raise Exception("Failed to click post button after validation")
             else:
                 # Use selector intelligence
                 selector_value, post_button = try_selectors_with_page(
@@ -605,10 +828,10 @@ def _upload_to_tiktok_with_manager(
                     logger.error("Post button not found with any selector")
                     raise Exception("TikTok Post button not found")
                 
-                # CRITICAL: Use no_wait_after=True to prevent browser context closure
-                logger.info("Submitting post (preventing premature navigation)...")
-                post_button.click(no_wait_after=True)
-                logger.info("Post button clicked successfully")
+                # Use validation and click helper
+                logger.info(f"Post button found with: {selector_value[:60]}")
+                if not _click_post_button_with_validation(page, post_button):
+                    raise Exception("Failed to click post button after validation")
             
             # CRITICAL: Wait for load state after post to detect success/navigation
             try:
