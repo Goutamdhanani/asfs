@@ -301,17 +301,20 @@ def upload_to_tiktok_browser(
                 file_input_selector = '[data-e2e="upload-input"]'
                 browser.upload_file(file_input_selector, video_path)
         else:
-            # Use selector intelligence
+            # Use selector intelligence with retry logic
             selector_value, file_input = try_selectors_with_page(
                 page,
                 file_input_group,
                 timeout=30000,
-                state="attached"
+                state="attached",
+                max_retries=3,  # 3 total attempts (1 initial + 2 retries)
+                retry_delay=5000  # Wait 5s between attempts
             )
             
             if not file_input:
-                logger.error("Failed to find file input with selector intelligence")
-                raise Exception("File input not found")
+                logger.error("Failed to find file input with selector intelligence after 3 retries")
+                logger.error("This indicates TikTok UI may have changed significantly")
+                raise Exception("File input not found after exhausting all selector retries")
             
             browser.upload_file(selector_value, video_path)
         
@@ -466,17 +469,20 @@ def upload_to_tiktok_browser(
                 if not _click_post_button_with_validation(page, post_button):
                     raise Exception("Failed to click post button after validation")
             else:
-                # Use selector intelligence
+                # Use selector intelligence with retry logic
                 selector_value, post_button = try_selectors_with_page(
                     page,
                     post_button_group,
                     timeout=30000,
-                    state="visible"
+                    state="visible",
+                    max_retries=5,  # 5 total attempts (1 initial + 4 retries) for extra resilience
+                    retry_delay=3000  # Wait 3s between attempts
                 )
                 
                 if not post_button:
-                    logger.error("Post button not found with any selector")
-                    raise Exception("TikTok Post button not found")
+                    logger.error("Post button not found with any selector after 5 retries")
+                    logger.error("This indicates TikTok UI may have changed significantly")
+                    raise Exception("TikTok Post button not found after exhausting all selector retries")
                 
                 # Use validation and click helper
                 logger.info(f"Post button found with: {selector_value[:60]}")
@@ -526,6 +532,9 @@ def upload_to_tiktok_browser(
         else:
             logger.warning("Upload submitted - success not verified (manual verification recommended)")
             result = "TikTok upload submitted (status unverified)"
+        
+        # Save selector knowledge for self-healing
+        _tiktok_selectors.save_knowledge()
         
         browser.human_delay(2, 3)
         browser.close()
@@ -840,17 +849,20 @@ def _upload_to_tiktok_with_manager(
                 if not _click_post_button_with_validation(page, post_button):
                     raise Exception("Failed to click post button after validation")
             else:
-                # Use selector intelligence
+                # Use selector intelligence with retry logic
                 selector_value, post_button = try_selectors_with_page(
                     page,
                     post_button_group,
                     timeout=30000,
-                    state="visible"
+                    state="visible",
+                    max_retries=5,  # 5 total attempts (1 initial + 4 retries) for extra resilience
+                    retry_delay=3000  # Wait 3s between attempts
                 )
                 
                 if not post_button:
-                    logger.error("Post button not found with any selector")
-                    raise Exception("TikTok Post button not found")
+                    logger.error("Post button not found with any selector after 5 retries")
+                    logger.error("This indicates TikTok UI may have changed significantly")
+                    raise Exception("TikTok Post button not found after exhausting all selector retries")
                 
                 # Use validation and click helper
                 logger.info(f"Post button found with: {selector_value[:60]}")
@@ -900,6 +912,9 @@ def _upload_to_tiktok_with_manager(
         else:
             logger.warning("Upload submitted - success not verified (manual verification recommended)")
             result = "TikTok upload submitted (status unverified)"
+        
+        # Save selector knowledge for self-healing
+        _tiktok_selectors.save_knowledge()
         
         # Navigate to about:blank for next uploader
         manager.navigate_to_blank(page)
