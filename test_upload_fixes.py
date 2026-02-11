@@ -93,6 +93,13 @@ class TestTikTokCaptionSelectorFix(unittest.TestCase):
         """Verify that spellcheck selector is present."""
         self.assertIn('[spellcheck]', self.content,
                      "Missing '[spellcheck]' selector")
+    
+    def test_drafteditor_selector(self):
+        """Verify that DraftJS editor selector is present for current TikTok UI."""
+        self.assertIn('div.notranslate.public-DraftEditor-content', self.content,
+                     "Missing 'div.notranslate.public-DraftEditor-content' selector for DraftJS editor")
+        self.assertIn('[role="combobox"]', self.content,
+                     "Missing '[role=\"combobox\"]' selector attribute")
 
 
 class TestInstagramButtonFix(unittest.TestCase):
