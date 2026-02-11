@@ -294,7 +294,7 @@ def _wait_for_button_enabled(page: Page, button_text: str, timeout: int = 90000)
                 logger.info(f"{button_text} button clicked (JS click fallback) using selector: {successful_selector}")
                 click_success = True
             else:
-                logger.error(f"JS click fallback also failed")
+                logger.error(f"JS click fallback also failed for {button_text} button with selector: {successful_selector}")
                 return False
         
         # For Share button specifically, implement additional measures
@@ -315,8 +315,8 @@ def _wait_for_button_enabled(page: Page, button_text: str, timeout: int = 90000)
                         else:
                             logger.warning("Second click attempts failed")
             except Exception as e:
-                # Button may have disappeared (good sign)
-                logger.debug(f"Could not check button visibility after click (may have disappeared): {e}")
+                # Button may have disappeared or become detached (good sign) or other error
+                logger.debug(f"Could not check button visibility after click (likely disappeared or detached): {e}")
             
             # Wait for button to disappear as success indicator
             try:
