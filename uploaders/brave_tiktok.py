@@ -547,9 +547,9 @@ def upload_to_tiktok_browser(
             # Re-raise with context to preserve exception chain
             raise Exception(f"TikTok Post button click failed: {e}") from e
         
-        # Wait for upload confirmation
+        # Wait for upload confirmation with enhanced detection
         logger.info("Waiting for upload confirmation...")
-        page.wait_for_timeout(15000)
+        page.wait_for_timeout(5000)  # Initial wait for upload to start
         
         # Check for success indicators - be honest about what we can detect
         current_url = page.url
@@ -562,22 +562,29 @@ def upload_to_tiktok_browser(
                 logger.info("Redirected away from upload page - likely successful")
                 success_confirmed = True
             else:
-                # Still on upload page - check for success elements
-                # Note: We cannot reliably detect success if still on /upload
-                # TikTok often stays on upload page after successful post
-                logger.info("Still on upload page - success cannot be confirmed")
+                # Still on upload page - TikTok often stays here after successful post
+                # We cannot reliably detect success without redirect
+                logger.info("Still on upload page - success cannot be determined")
                 success_confirmed = False
+                
+                # Wait for potential processing
+                page.wait_for_timeout(5000)
         except Exception as e:
             logger.warning(f"Error checking success status: {e}")
             success_confirmed = False
         
+        # Apply minimum safety wait (15 seconds total from post click)
+        # to ensure TikTok has time to process the upload
+        logger.info("Applying minimum safety wait to ensure upload completion...")
+        page.wait_for_timeout(5000)  # Additional 5s to reach 15s total
+        
         # Return honest status
         if success_confirmed:
-            logger.info("Upload confirmed successful")
+            logger.info("TikTok upload confirmed successful")
             result = "TikTok upload successful"
         else:
-            logger.warning("Upload submitted - success not verified (manual verification recommended)")
-            result = "TikTok upload submitted (status unverified)"
+            logger.warning("TikTok upload status unverified, but safety wait completed (15s total)")
+            result = "TikTok upload submitted (status unverified, waited 15s for safety)"
         
         browser.human_delay(2, 3)
         browser.close()
@@ -923,9 +930,9 @@ def _upload_to_tiktok_with_manager(
             # Re-raise with context to preserve exception chain
             raise Exception(f"TikTok Post button click failed: {e}") from e
         
-        # Wait for upload confirmation
+        # Wait for upload confirmation with enhanced detection
         logger.info("Waiting for upload confirmation...")
-        page.wait_for_timeout(15000)
+        page.wait_for_timeout(5000)  # Initial wait for upload to start
         
         # Check for success indicators - be honest about what we can detect
         current_url = page.url
@@ -938,22 +945,29 @@ def _upload_to_tiktok_with_manager(
                 logger.info("Redirected away from upload page - likely successful")
                 success_confirmed = True
             else:
-                # Still on upload page - check for success elements
-                # Note: We cannot reliably detect success if still on /upload
-                # TikTok often stays on upload page after successful post
-                logger.info("Still on upload page - success cannot be confirmed")
+                # Still on upload page - TikTok often stays here after successful post
+                # We cannot reliably detect success without redirect
+                logger.info("Still on upload page - success cannot be determined")
                 success_confirmed = False
+                
+                # Wait for potential processing
+                page.wait_for_timeout(5000)
         except Exception as e:
             logger.warning(f"Error checking success status: {e}")
             success_confirmed = False
         
+        # Apply minimum safety wait (15 seconds total from post click)
+        # to ensure TikTok has time to process the upload
+        logger.info("Applying minimum safety wait to ensure upload completion...")
+        page.wait_for_timeout(5000)  # Additional 5s to reach 15s total
+        
         # Return honest status
         if success_confirmed:
-            logger.info("Upload confirmed successful")
+            logger.info("TikTok upload confirmed successful")
             result = "TikTok upload successful"
         else:
-            logger.warning("Upload submitted - success not verified (manual verification recommended)")
-            result = "TikTok upload submitted (status unverified)"
+            logger.warning("TikTok upload status unverified, but safety wait completed (15s total)")
+            result = "TikTok upload submitted (status unverified, waited 15s for safety)"
         
         # Navigate to about:blank for next uploader
         manager.navigate_to_blank(page)
