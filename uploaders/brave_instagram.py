@@ -51,24 +51,81 @@ def _wait_for_button_enabled(page: Page, button_text: str, timeout: int = 90000)
     Returns:
         True if button clicked successfully, False otherwise
     """
+    import time
     try:
-        # Use locator for better state checking
-        button = page.locator(f'div[role="button"]:has-text("{button_text}")')
+        # Try multiple selector strategies for better compatibility
+        selectors = [
+            f'div[role="button"]:has-text("{button_text}")',
+            f'button:has-text("{button_text}")',
+            f'[role="button"]:has-text("{button_text}")',
+        ]
         
-        # Wait for visible
+        button = None
+        successful_selector = None
+        
+        # Find which selector works
+        for selector in selectors:
+            try:
+                btn = page.locator(selector).first
+                btn.wait_for(state="visible", timeout=10000)
+                button = btn
+                successful_selector = selector
+                logger.debug(f"{button_text} button found with selector: {selector}")
+                break
+            except Exception as e:
+                logger.debug(f"Selector {selector} failed: {e}")
+                continue
+        
+        if not button:
+            logger.error(f"{button_text} button not found with any selector")
+            return False
+        
+        # Wait for button to be visible and attached
         button.wait_for(state="visible", timeout=timeout)
         logger.debug(f"{button_text} button visible")
         
-        # Critical: Wait for enabled state (button not disabled while processing)
-        button.wait_for(state="enabled", timeout=timeout)
-        logger.debug(f"{button_text} button enabled")
+        # Wait for button to be enabled (not disabled)
+        # Instagram buttons are disabled via aria-disabled or disabled attribute
+        start_time = time.time()
+        max_wait = timeout / 1000  # Convert to seconds
+        
+        while True:
+            elapsed = time.time() - start_time
+            if elapsed > max_wait:
+                logger.error(f"{button_text} button did not become enabled in {max_wait}s")
+                return False
+            
+            # Check if button is disabled
+            is_disabled = False
+            try:
+                aria_disabled = button.get_attribute('aria-disabled')
+                disabled_attr = button.get_attribute('disabled')
+                
+                # Check for disabled state
+                # - aria-disabled='true' indicates disabled
+                # - disabled attribute present indicates disabled (HTML standard)
+                # Note: In standard HTML, presence of 'disabled' means disabled regardless of value,
+                # but Instagram/React may use aria-disabled for dynamic state instead
+                if aria_disabled == 'true' or disabled_attr is not None:
+                    is_disabled = True
+                    logger.debug(f"{button_text} button still disabled, waiting... (elapsed: {elapsed:.1f}s)")
+                    # Conservative 500ms polling interval to balance responsiveness with CPU usage
+                    page.wait_for_timeout(500)
+                else:
+                    # Button is enabled
+                    logger.debug(f"{button_text} button enabled after {elapsed:.1f}s")
+                    break
+            except Exception as e:
+                # If we can't check attributes, assume it's ready
+                logger.debug(f"Could not check disabled state, assuming ready: {e}")
+                break
         
         # Now safe to click
         button.click()
-        logger.info(f"{button_text} button clicked")
+        logger.info(f"{button_text} button clicked successfully")
         return True
     except PlaywrightTimeoutError:
-        logger.error(f"{button_text} button did not become enabled in time")
+        logger.error(f"{button_text} button did not become visible/ready in time")
         return False
     except Exception as e:
         logger.error(f"Error clicking {button_text} button: {e}")
@@ -231,12 +288,15 @@ def _select_post_option(page: Page, timeout: int = 45000) -> bool:
                 # Try to interact with the first matching element
                 button.first.wait_for(state="visible", timeout=9000)
                 
-                # For link elements, check if they're enabled (not disabled)
+                # For link elements, just click (they don't have enabled/disabled state)
                 if 'a[role="link"]' in selector.value or 'a:has' in selector.value:
-                    # Links don't have enabled state, check if clickable
                     logger.info(f"Found Post option (link): {selector.value}")
                 else:
-                    button.first.wait_for(state="enabled", timeout=9000)
+                    # For button elements, check if not disabled
+                    aria_disabled = button.first.get_attribute('aria-disabled')
+                    if aria_disabled == 'true':
+                        logger.debug(f"Button is disabled, skipping: {selector.value}")
+                        continue
                     logger.info(f"Found Post option (button): {selector.value}")
                 
                 button.first.click()

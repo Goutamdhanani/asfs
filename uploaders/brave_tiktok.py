@@ -27,27 +27,72 @@ TIKTOK_NETWORK_ERROR_MESSAGES = [
 ]
 
 
-def _wait_for_processing_complete(page: Page, timeout: int = 360000) -> bool:
+def _wait_for_processing_complete(page: Page, timeout: int = 180000) -> bool:
     """
     Wait for TikTok video processing to complete.
     
     Looks for signals that processing is done:
+    - Upload status container shows "Uploaded" with success indicator
     - Progress bar disappears
     - "Processing" text disappears
     - Caption input becomes visible and interactive
     
     Args:
         page: Playwright Page object
-        timeout: Maximum wait time in milliseconds (default: 6 minutes)
+        timeout: Maximum wait time in milliseconds (default: 3 minutes)
         
     Returns:
         True if processing confirmed complete, False otherwise
     """
+    import time
+    start_time = time.time()
     logger.info("Waiting for video processing to complete...")
     
-    # Wait for any progress bars or "Processing" text to disappear
+    # CRITICAL: Wait for upload status to show "Uploaded" - this is the new reliable indicator
+    # The new TikTok UI shows a status container with "Uploaded" text when ready
     try:
-        # Check if processing indicator exists
+        logger.debug("Looking for upload status indicator...")
+        
+        # Try multiple selectors for the "Uploaded" status
+        upload_status_selectors = [
+            # Primary: data-e2e attribute with success status
+            'div[data-e2e="upload_status_container"] .info-status.success',
+            'div[data-e2e="upload_status_container"] .success',
+            # Alternative: look for "Uploaded" text in status container
+            'div[data-e2e="upload_status_container"]:has-text("Uploaded")',
+            # Fallback: any success indicator with "Uploaded" text
+            '.info-status.success:has-text("Uploaded")',
+            '.success:has-text("Uploaded")',
+        ]
+        
+        uploaded_found = False
+        for selector in upload_status_selectors:
+            try:
+                logger.debug(f"Trying upload status selector: {selector}")
+                # Use shorter timeout per selector to avoid long waits
+                # wait_for_selector will raise TimeoutError if selector not found within timeout
+                page.wait_for_selector(selector, timeout=30000, state="visible")
+                elapsed = time.time() - start_time
+                logger.info(f"✓ Upload status: Uploaded (detected in {elapsed:.1f}s)")
+                uploaded_found = True
+                break
+            except Exception as e:
+                logger.debug(f"Selector {selector} not found: {e}")
+                continue
+        
+        if uploaded_found:
+            # Give UI a moment to finish rendering
+            page.wait_for_timeout(2000)
+            elapsed = time.time() - start_time
+            logger.info(f"Upload processing complete - total time: {elapsed:.1f}s")
+            return True
+        else:
+            logger.warning("Upload status 'Uploaded' not detected, trying fallback detection...")
+    except Exception as e:
+        logger.debug(f"Error checking upload status: {e}")
+    
+    # Fallback 1: Wait for any progress bars or "Processing" text to disappear
+    try:
         processing_indicators = [
             'text="Processing"',
             '[class*="progress"]',
@@ -60,28 +105,31 @@ def _wait_for_processing_complete(page: Page, timeout: int = 360000) -> bool:
                 if page.locator(indicator).count() > 0:
                     logger.debug(f"Found processing indicator: {indicator}, waiting for it to disappear...")
                     page.wait_for_selector(indicator, state="hidden", timeout=timeout)
-                    logger.info(f"Processing indicator disappeared: {indicator}")
+                    elapsed = time.time() - start_time
+                    logger.info(f"Processing indicator disappeared: {indicator} (after {elapsed:.1f}s)")
             except Exception:
                 # Indicator not found or already gone
                 pass
     except Exception as e:
         logger.debug(f"Error checking for processing indicators: {e}")
     
-    # Wait for caption input to be visible (primary signal that upload is ready)
+    # Fallback 2: Wait for caption input to be visible (signal that upload is ready)
     caption_group = _tiktok_selectors.get_group("caption_input")
     if caption_group:
         selector_value, caption_element = try_selectors_with_page(
             page,
             caption_group,
-            timeout=timeout,
+            timeout=30000,  # Short timeout for fallback
             state="visible"
         )
         
         if caption_element:
-            logger.info("Upload processing complete - caption input available")
+            elapsed = time.time() - start_time
+            logger.info(f"Upload processing complete - caption input available (total time: {elapsed:.1f}s)")
             return True
         else:
-            logger.warning("Could not confirm upload processing with caption selector")
+            elapsed = time.time() - start_time
+            logger.warning(f"Could not confirm upload processing with caption selector (elapsed: {elapsed:.1f}s)")
             return False
     else:
         # Legacy fallback
@@ -89,15 +137,17 @@ def _wait_for_processing_complete(page: Page, timeout: int = 360000) -> bool:
             caption_input_ready = False
             for selector in ['div[contenteditable="true"]', '[data-e2e="caption-input"]']:
                 try:
-                    page.wait_for_selector(selector, timeout=timeout, state="visible")
-                    logger.info(f"Upload processing complete - caption input available ({selector})")
+                    page.wait_for_selector(selector, timeout=30000, state="visible")
+                    elapsed = time.time() - start_time
+                    logger.info(f"Upload processing complete - caption input available ({selector}, time: {elapsed:.1f}s)")
                     caption_input_ready = True
                     break
                 except:
                     continue
             return caption_input_ready
         except Exception as e:
-            logger.warning(f"Could not confirm upload processing completed: {e}")
+            elapsed = time.time() - start_time
+            logger.warning(f"Could not confirm upload processing completed: {e} (elapsed: {elapsed:.1f}s)")
             return False
 
 

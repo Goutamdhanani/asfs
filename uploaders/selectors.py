@@ -382,6 +382,12 @@ def get_tiktok_selectors() -> SelectorManager:
         priority=1,
         description="Test ID with contenteditable"
     )
+    # Add new selectors for current TikTok UI
+    caption_group.add_selector(
+        value='div[contenteditable="plaintext-only"]',
+        priority=2,
+        description="Contenteditable plaintext-only mode (new TikTok UI pattern)"
+    )
     caption_group.add_selector(
         value='div[contenteditable="true"][aria-label*="caption" i]',
         priority=2,
@@ -393,6 +399,11 @@ def get_tiktok_selectors() -> SelectorManager:
         description="Contenteditable with data-text (common React pattern for placeholder text)"
     )
     caption_group.add_selector(
+        value='[role="textbox"][contenteditable]',
+        priority=2,
+        description="Role textbox with contenteditable"
+    )
+    caption_group.add_selector(
         value='div.caption-editor[contenteditable="true"]',
         priority=3,
         description="Class-based selector"
@@ -401,6 +412,11 @@ def get_tiktok_selectors() -> SelectorManager:
         value='div[contenteditable="true"][placeholder*="caption" i]',
         priority=3,
         description="Placeholder-based"
+    )
+    caption_group.add_selector(
+        value='div[contenteditable][spellcheck]',
+        priority=3,
+        description="Contenteditable with spellcheck (common in text editors)"
     )
     caption_group.add_selector(
         value='div[contenteditable="true"]',
