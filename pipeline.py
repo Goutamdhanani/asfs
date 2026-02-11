@@ -50,7 +50,7 @@ load_dotenv()
 from transcript import transcribe_video, check_transcript_quality, extract_audio
 from transcript.transcribe import load_transcript, load_and_validate_transcript
 from segmenter import build_sentence_windows, build_pause_windows
-from ai import score_segments
+from ai import score_segments, score_segments_enhanced
 from validator import deduplicate_clips, remove_overlapping_clips
 from clipper import extract_clips
 from metadata import generate_captions, generate_hashtags
@@ -410,7 +410,20 @@ def run_pipeline(video_path: str, output_dir: str = "output", use_cache: bool = 
             audit.log_pipeline_event("ai_scoring", "started", video_path)
             
             try:
-                scored_segments = score_segments(all_candidates, config['model'])
+                # Use enhanced scoring if enabled in config
+                use_enhanced = config['model'].get('use_enhanced_pipeline', True)
+                
+                if use_enhanced:
+                    logger.info("Using enhanced viral detection pipeline")
+                    scored_segments = score_segments_enhanced(
+                        all_candidates, 
+                        config['model'],
+                        transcript_segments=transcript_data.get('segments', [])
+                    )
+                else:
+                    logger.info("Using original scoring pipeline")
+                    scored_segments = score_segments(all_candidates, config['model'])
+                
                 logger.info(f"[OK] Scored segments: {len(scored_segments)}")
                 
                 audit.log_pipeline_event("ai_scoring", "completed", video_path,

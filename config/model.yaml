@@ -39,3 +39,23 @@ model:
   
   # Circuit breaker configuration
   circuit_breaker_threshold: 3  # Number of consecutive local failures before switching to API
+  
+  # ========================================
+  # ENHANCED VIRAL DETECTION PIPELINE (NEW)
+  # ========================================
+  
+  # Enable/disable enhanced pipeline (default: true)
+  use_enhanced_pipeline: true
+  
+  # Psychological Virality Scoring
+  psychological_threshold: 65.0  # Minimum score (0-100) for clips to pass
+  top_clips: 10  # Number of top clips to return after full analysis
+  
+  # Hook Quality (First 7 Seconds)
+  min_hook_score: 6.0  # Minimum hook score (0-10) to pass filter
+  
+  # Semantic Deduplication
+  similarity_threshold: 0.85  # Cosine similarity threshold (0-1) for duplicates
+  
+  # LLM Scoring Integration
+  use_llm_scoring: true  # Whether to use LLM scoring in Stage 2 (deep analysis)

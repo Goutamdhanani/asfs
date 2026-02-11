@@ -36,3 +36,8 @@ playwright>=1.40.0
 
 # Build
 pyinstaller>=6.0.0
+
+# Advanced Viral Detection
+vaderSentiment>=3.3.2  # Sentiment/emotion analysis
+textblob>=0.17.1  # Natural language processing
+sentence-transformers>=2.2.2  # Semantic embeddings for deduplication
