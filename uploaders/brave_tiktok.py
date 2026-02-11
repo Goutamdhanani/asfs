@@ -307,8 +307,8 @@ def upload_to_tiktok_browser(
                 file_input_group,
                 timeout=30000,
                 state="attached",
-                max_retries=3,  # Retry up to 3 times if all selectors fail
-                retry_delay=5000  # Wait 5s between retries
+                max_retries=3,  # 3 total attempts (1 initial + 2 retries)
+                retry_delay=5000  # Wait 5s between attempts
             )
             
             if not file_input:
@@ -475,8 +475,8 @@ def upload_to_tiktok_browser(
                     post_button_group,
                     timeout=30000,
                     state="visible",
-                    max_retries=5,  # Retry up to 5 times like Instagram
-                    retry_delay=3000  # Wait 3s between retries
+                    max_retries=5,  # 5 total attempts (1 initial + 4 retries) for extra resilience
+                    retry_delay=3000  # Wait 3s between attempts
                 )
                 
                 if not post_button:
@@ -855,8 +855,8 @@ def _upload_to_tiktok_with_manager(
                     post_button_group,
                     timeout=30000,
                     state="visible",
-                    max_retries=5,  # Retry up to 5 times like Instagram
-                    retry_delay=3000  # Wait 3s between retries
+                    max_retries=5,  # 5 total attempts (1 initial + 4 retries) for extra resilience
+                    retry_delay=3000  # Wait 3s between attempts
                 )
                 
                 if not post_button:

@@ -377,8 +377,8 @@ def upload_to_instagram_browser(
                 file_input_group,
                 timeout=15000,
                 state="attached",  # File inputs are often hidden
-                max_retries=3,  # Retry up to 3 times if all selectors fail
-                retry_delay=5000  # Wait 5s between retries
+                max_retries=3,  # 3 total attempts (1 initial + 2 retries)
+                retry_delay=5000  # Wait 5s between attempts
             )
             
             if not file_input:
@@ -620,8 +620,8 @@ def _upload_to_instagram_with_manager(
                 file_input_group,
                 timeout=15000,
                 state="attached",
-                max_retries=3,  # Retry up to 3 times if all selectors fail
-                retry_delay=5000  # Wait 5s between retries
+                max_retries=3,  # 3 total attempts (1 initial + 2 retries)
+                retry_delay=5000  # Wait 5s between attempts
             )
             
             if not file_input:

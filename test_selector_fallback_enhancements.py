@@ -33,7 +33,7 @@ class TestSelectorRetryEnhancements(unittest.TestCase):
         
         # Check defaults are documented
         self.assertIn('max_retries: int = 1', content,
-                     "max_retries default should be 1")
+                     "max_retries default should be 1 (single attempt)")
         self.assertIn('retry_delay: int = 3000', content,
                      "retry_delay default should be 3000")
 

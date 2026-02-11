@@ -258,7 +258,7 @@ class SelectorManager:
                             if last_used_str:
                                 try:
                                     selector.last_used = datetime.fromisoformat(last_used_str)
-                                except:
+                                except (ValueError, TypeError):
                                     pass
                             
                             logger.debug(
@@ -759,7 +759,7 @@ def try_selectors_with_page(
     
     This function implements a comprehensive fallback strategy:
     1. Tries all selectors in confidence-ranked order
-    2. If all fail, waits (retry_delay) and tries again (up to max_retries)
+    2. If all fail, waits (retry_delay) and tries again (up to max_retries attempts total)
     3. Logs detailed attempt info including selector, confidence, and result
     4. Returns first successful selector or None if all attempts exhausted
     
@@ -768,7 +768,7 @@ def try_selectors_with_page(
         selector_group: SelectorGroup to try
         timeout: Timeout in milliseconds for each selector (per attempt)
         state: State to wait for ("visible", "attached", "enabled")
-        max_retries: Maximum retry attempts if all selectors fail (default: 1 = no retry)
+        max_retries: Total number of attempts (1 = single try, no retries; 3 = 1 initial + 2 retries)
         retry_delay: Milliseconds to wait between retry attempts (default: 3000)
         
     Returns:
