@@ -15,7 +15,6 @@ from .tabs.metadata_tab import MetadataTab
 from .tabs.upload_tab import UploadTab
 from .tabs.run_tab import RunTab
 from .tabs.videos_tab import VideosTab
-from .workers.ollama_worker import OllamaWorker
 from .workers.pipeline_worker import PipelineWorker
 
 logger = logging.getLogger(__name__)
@@ -26,14 +25,10 @@ class MainWindow(QMainWindow):
     
     def __init__(self):
         super().__init__()
+        self.batch_message_shown = False  # Track if batch message was shown
         self.init_ui()
         self.init_workers()
         self.load_settings()
-        
-        # Start status updates
-        self.status_timer = QTimer(self)
-        self.status_timer.timeout.connect(self.update_ollama_status)
-        self.status_timer.start(3000)  # Update every 3 seconds
     
     def init_ui(self):
         """Initialize the user interface."""
@@ -67,10 +62,6 @@ class MainWindow(QMainWindow):
     
     def init_workers(self):
         """Initialize background workers."""
-        self.ollama_worker = OllamaWorker()
-        self.ollama_worker.operation_complete.connect(self.on_ollama_operation_complete)
-        self.ollama_worker.status_update.connect(self.on_ollama_status_update)
-        
         self.pipeline_worker = PipelineWorker()
         self.pipeline_worker.log_message.connect(self.on_pipeline_log)
         self.pipeline_worker.progress_update.connect(self.on_pipeline_progress)
@@ -81,12 +72,11 @@ class MainWindow(QMainWindow):
         """Connect all UI signals to handlers."""
         # Input tab
         self.input_tab.video_selected.connect(self.on_video_selected)
+        self.input_tab.videos_selected.connect(self.on_videos_selected)
         self.input_tab.output_changed.connect(self.on_output_changed)
+        self.input_tab.cache_changed.connect(self.on_cache_changed)
         
         # AI tab
-        self.ai_tab.start_ollama_clicked.connect(self.on_start_ollama)
-        self.ai_tab.stop_ollama_clicked.connect(self.on_stop_ollama)
-        self.ai_tab.load_model_clicked.connect(self.on_load_model)
         self.ai_tab.settings_changed.connect(self.on_ai_settings_changed)
         
         # Metadata tab
@@ -105,53 +95,20 @@ class MainWindow(QMainWindow):
         logger.info(f"Video selected: {path}")
         self.save_settings()
     
+    def on_videos_selected(self, paths: list):
+        """Handle multiple videos selection."""
+        logger.info(f"{len(paths)} videos selected")
+        self.save_settings()
+    
     def on_output_changed(self, path: str):
         """Handle output directory change."""
         logger.info(f"Output directory changed: {path}")
         self.save_settings()
     
-    def on_start_ollama(self):
-        """Handle start Ollama request."""
-        self.run_tab.append_log("Starting Ollama server...")
-        self.ollama_worker.start_server()
-    
-    def on_stop_ollama(self):
-        """Handle stop Ollama request."""
-        self.run_tab.append_log("Stopping Ollama server...")
-        self.ollama_worker.stop_server()
-    
-    def on_load_model(self, model_name: str):
-        """Handle load model request."""
-        self.run_tab.append_log(f"Loading model: {model_name}")
-        QMessageBox.information(
-            self,
-            "Loading Model",
-            f"Downloading {model_name}...\n\nThis may take several minutes depending on model size and network speed.\n\nThe UI will remain responsive. Check the logs for progress."
-        )
-        self.ollama_worker.load_model(model_name)
-    
-    def on_ollama_operation_complete(self, success: bool, message: str):
-        """Handle Ollama operation completion."""
-        self.run_tab.append_log(f"Ollama: {message}")
-        
-        if success:
-            QMessageBox.information(self, "Success", message)
-        else:
-            QMessageBox.warning(self, "Operation Failed", message)
-        
-        # Update status
-        self.update_ollama_status()
-    
-    def on_ollama_status_update(self, status: dict):
-        """Handle Ollama status update."""
-        running = status.get("running", False)
-        model_loaded = status.get("model_loaded", False)
-        self.ai_tab.update_ollama_status(running, model_loaded)
-    
-    def update_ollama_status(self):
-        """Request Ollama status update."""
-        if not self.ollama_worker.isRunning():
-            self.ollama_worker.check_status()
+    def on_cache_changed(self, use_cache: bool):
+        """Handle cache setting change."""
+        logger.info(f"Cache setting changed: {use_cache}")
+        self.save_settings()
     
     def on_ai_settings_changed(self, settings: dict):
         """Handle AI settings change."""
@@ -172,17 +129,42 @@ class MainWindow(QMainWindow):
         """Handle run pipeline request."""
         # Validate inputs
         video_path = self.input_tab.get_video_path()
+        selected_videos = self.input_tab.get_selected_videos()
         
-        if not video_path or not os.path.exists(video_path):
+        # Check if we have any videos selected
+        if not selected_videos:
             QMessageBox.warning(
                 self,
                 "Invalid Input",
-                "Please select a valid video file before running the pipeline."
+                "Please select a video file or folder before running the pipeline."
+            )
+            self.run_tab.pipeline_finished(False)
+            return
+        
+        # For now, only process first video (TODO: add batch processing)
+        if len(selected_videos) > 1 and not self.batch_message_shown:
+            QMessageBox.information(
+                self,
+                "Batch Processing",
+                f"Selected {len(selected_videos)} videos.\n\n"
+                "Currently processing first video only.\n"
+                "Full batch processing will be added in a future update."
+            )
+            self.batch_message_shown = True  # Don't show again this session
+        
+        video_path = selected_videos[0]
+        
+        if not os.path.exists(video_path):
+            QMessageBox.warning(
+                self,
+                "Invalid Input",
+                "Selected video file does not exist."
             )
             self.run_tab.pipeline_finished(False)
             return
         
         output_dir = self.input_tab.get_output_path()
+        use_cache = self.input_tab.get_use_cache()
         
         # Gather all configuration
         config = {
@@ -191,8 +173,12 @@ class MainWindow(QMainWindow):
             "upload": self.upload_tab.get_settings()
         }
         
+        # Log cache status
+        cache_status = "enabled" if use_cache else "disabled (forcing fresh processing)"
+        self.run_tab.append_log(f"Cache: {cache_status}\n")
+        
         # Configure and start worker
-        self.pipeline_worker.configure(video_path, output_dir, config)
+        self.pipeline_worker.configure(video_path, output_dir, config, use_cache)
         self.run_tab.pipeline_started()
         self.pipeline_worker.start()
         
