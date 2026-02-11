@@ -371,17 +371,20 @@ def upload_to_instagram_browser(
             file_input_selector = 'input[type="file"][accept*="video"], input[type="file"][accept*="image"]'
             logger.warning("Using legacy file input selector")
         else:
-            # Use selector intelligence
+            # Use selector intelligence with retry logic
             selector_value, file_input = try_selectors_with_page(
                 page,
                 file_input_group,
                 timeout=15000,
-                state="attached"  # File inputs are often hidden
+                state="attached",  # File inputs are often hidden
+                max_retries=3,  # Retry up to 3 times if all selectors fail
+                retry_delay=5000  # Wait 5s between retries
             )
             
             if not file_input:
-                logger.error("Failed to find file input with selector intelligence")
-                raise Exception("File input not found")
+                logger.error("Failed to find file input with selector intelligence after 3 retries")
+                logger.error("This indicates Instagram UI may have changed significantly")
+                raise Exception("File input not found after exhausting all selector retries")
             
             file_input_selector = selector_value
         
@@ -447,6 +450,9 @@ def upload_to_instagram_browser(
         # Be HONEST about what we know
         logger.warning("Instagram upload submitted - no deterministic confirmation available")
         result = "Instagram upload submitted (status unverified)"
+        
+        # Save selector knowledge for self-healing
+        _instagram_selectors.save_knowledge()
         
         browser.human_delay(2, 3)
         browser.close()
@@ -608,17 +614,20 @@ def _upload_to_instagram_with_manager(
             )
             logger.warning("Using legacy file input selector")
         else:
-            # Use selector intelligence
+            # Use selector intelligence with retry logic
             selector_value, file_input = try_selectors_with_page(
                 page,
                 file_input_group,
                 timeout=15000,
-                state="attached"
+                state="attached",
+                max_retries=3,  # Retry up to 3 times if all selectors fail
+                retry_delay=5000  # Wait 5s between retries
             )
             
             if not file_input:
-                logger.error("Failed to find file input")
-                raise Exception("File input not found")
+                logger.error("Failed to find file input after 3 retries")
+                logger.error("This indicates Instagram UI may have changed significantly")
+                raise Exception("File input not found after exhausting all selector retries")
         
         try:
             logger.info("File input found, uploading file")
@@ -683,6 +692,9 @@ def _upload_to_instagram_with_manager(
         # Be HONEST about what we know
         logger.warning("Instagram upload submitted - no deterministic confirmation available")
         result = "Instagram upload submitted (status unverified)"
+        
+        # Save selector knowledge for self-healing
+        _instagram_selectors.save_knowledge()
         
         # Navigate to about:blank for next uploader
         manager.navigate_to_blank(page)

@@ -16,9 +16,11 @@ Priority Order:
 """
 
 import logging
+import json
+from pathlib import Path
 from typing import List, Dict, Optional, Tuple
 from datetime import datetime
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, asdict
 
 logger = logging.getLogger(__name__)
 
@@ -159,6 +161,117 @@ class SelectorManager:
             return []
         
         return [s.value for s in group.get_ranked_selectors()]
+    
+    def save_knowledge(self, knowledge_dir: Optional[Path] = None):
+        """
+        Save selector knowledge to JSON file for persistence across runs.
+        
+        Stores success/failure counts, confidence, and last used time
+        to enable self-healing behavior.
+        
+        Args:
+            knowledge_dir: Directory to save knowledge file (default: ../knowledge)
+        """
+        if knowledge_dir is None:
+            knowledge_dir = Path(__file__).parent.parent / "knowledge"
+        
+        knowledge_dir.mkdir(exist_ok=True)
+        knowledge_file = knowledge_dir / f"{self.platform}_selectors.json"
+        
+        # Build knowledge data structure
+        knowledge = {
+            "platform": self.platform,
+            "last_updated": datetime.now().isoformat(),
+            "groups": {}
+        }
+        
+        for group_name, group in self.groups.items():
+            group_data = {
+                "description": group.description,
+                "selectors": []
+            }
+            
+            for selector in group.selectors:
+                selector_data = {
+                    "value": selector.value,
+                    "priority": selector.priority,
+                    "confidence": selector.confidence,
+                    "success_count": selector.success_count,
+                    "failure_count": selector.failure_count,
+                    "last_used": selector.last_used.isoformat() if selector.last_used else None,
+                    "description": selector.description
+                }
+                group_data["selectors"].append(selector_data)
+            
+            knowledge["groups"][group_name] = group_data
+        
+        # Save to file
+        try:
+            with open(knowledge_file, 'w') as f:
+                json.dump(knowledge, f, indent=2)
+            logger.info(f"Saved selector knowledge to {knowledge_file}")
+        except Exception as e:
+            logger.warning(f"Could not save selector knowledge: {e}")
+    
+    def load_knowledge(self, knowledge_dir: Optional[Path] = None):
+        """
+        Load selector knowledge from JSON file.
+        
+        Restores success/failure counts, confidence, and last used time
+        from previous runs to enable self-healing behavior.
+        
+        Args:
+            knowledge_dir: Directory containing knowledge file (default: ../knowledge)
+        """
+        if knowledge_dir is None:
+            knowledge_dir = Path(__file__).parent.parent / "knowledge"
+        
+        knowledge_file = knowledge_dir / f"{self.platform}_selectors.json"
+        
+        if not knowledge_file.exists():
+            logger.debug(f"No knowledge file found at {knowledge_file}")
+            return
+        
+        try:
+            with open(knowledge_file, 'r') as f:
+                knowledge = json.load(f)
+            
+            logger.info(f"Loading selector knowledge from {knowledge_file}")
+            
+            # Restore knowledge to existing selector groups
+            for group_name, group_data in knowledge.get("groups", {}).items():
+                group = self.get_group(group_name)
+                if not group:
+                    logger.warning(f"Knowledge group '{group_name}' not found in manager")
+                    continue
+                
+                # Match selectors by value and restore state
+                for selector_data in group_data.get("selectors", []):
+                    for selector in group.selectors:
+                        if selector.value == selector_data["value"]:
+                            # Restore learned state
+                            selector.confidence = selector_data.get("confidence", 1.0)
+                            selector.success_count = selector_data.get("success_count", 0)
+                            selector.failure_count = selector_data.get("failure_count", 0)
+                            
+                            last_used_str = selector_data.get("last_used")
+                            if last_used_str:
+                                try:
+                                    selector.last_used = datetime.fromisoformat(last_used_str)
+                                except:
+                                    pass
+                            
+                            logger.debug(
+                                f"Restored {group_name}/{selector.value[:40]}: "
+                                f"confidence={selector.confidence:.2f}, "
+                                f"success={selector.success_count}, "
+                                f"failure={selector.failure_count}"
+                            )
+                            break
+            
+            logger.info(f"Selector knowledge loaded successfully")
+        except Exception as e:
+            logger.warning(f"Could not load selector knowledge: {e}")
 
 
 # ============================================================================
@@ -334,6 +447,9 @@ def get_instagram_selectors() -> SelectorManager:
     )
     manager.add_group(share_button_group)
     
+    # Load knowledge from previous runs for self-healing
+    manager.load_knowledge()
+    
     return manager
 
 
@@ -430,6 +546,9 @@ def get_tiktok_selectors() -> SelectorManager:
         description="Role-based with text (excluding Discard) - less stable"
     )
     manager.add_group(post_button_group)
+    
+    # Load knowledge from previous runs for self-healing
+    manager.load_knowledge()
     
     return manager
 
@@ -631,52 +750,114 @@ def try_selectors_with_page(
     page,
     selector_group: SelectorGroup,
     timeout: int = 10000,
-    state: str = "visible"
+    state: str = "visible",
+    max_retries: int = 1,
+    retry_delay: int = 3000
 ) -> Tuple[Optional[str], Optional[object]]:
     """
-    Try selectors from a group until one succeeds.
+    Try selectors from a group until one succeeds, with retry logic.
+    
+    This function implements a comprehensive fallback strategy:
+    1. Tries all selectors in confidence-ranked order
+    2. If all fail, waits (retry_delay) and tries again (up to max_retries)
+    3. Logs detailed attempt info including selector, confidence, and result
+    4. Returns first successful selector or None if all attempts exhausted
     
     Args:
         page: Playwright Page object
         selector_group: SelectorGroup to try
-        timeout: Timeout in milliseconds for each selector
+        timeout: Timeout in milliseconds for each selector (per attempt)
         state: State to wait for ("visible", "attached", "enabled")
+        max_retries: Maximum retry attempts if all selectors fail (default: 1 = no retry)
+        retry_delay: Milliseconds to wait between retry attempts (default: 3000)
         
     Returns:
         Tuple of (selector_value, element) or (None, None) if all fail
     """
     from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
     
-    ranked_selectors = selector_group.get_ranked_selectors()
+    # Track all attempts for comprehensive error reporting
+    attempt_log = []
     
-    for selector in ranked_selectors:
-        try:
-            logger.debug(
-                f"Trying selector: {selector_group.name} - {selector.value[:60]}... "
-                f"(score: {selector.get_score():.2f})"
+    for retry in range(max_retries):
+        if retry > 0:
+            logger.info(
+                f"Retrying selector group '{selector_group.name}' "
+                f"(attempt {retry + 1}/{max_retries})"
             )
-            
-            element = page.wait_for_selector(
-                selector.value,
-                timeout=timeout,
-                state=state
-            )
-            
-            if element:
-                logger.info(
-                    f"Selector succeeded: {selector_group.name} - {selector.value[:60]}"
+            page.wait_for_timeout(retry_delay)
+        
+        ranked_selectors = selector_group.get_ranked_selectors()
+        
+        for selector in ranked_selectors:
+            try:
+                logger.debug(
+                    f"Trying selector: {selector_group.name} - {selector.value[:60]}... "
+                    f"(score: {selector.get_score():.2f}, confidence: {selector.confidence:.2f}, "
+                    f"priority: {selector.priority}, attempt: {retry + 1}/{max_retries})"
                 )
-                selector_group.record_success(selector.value)
-                return selector.value, element
                 
-        except PlaywrightTimeoutError:
-            logger.debug(f"Selector timeout: {selector.value[:60]}")
-            selector_group.record_failure(selector.value)
-            continue
-        except Exception as e:
-            logger.debug(f"Selector error: {selector.value[:60]} - {e}")
-            selector_group.record_failure(selector.value)
-            continue
+                element = page.wait_for_selector(
+                    selector.value,
+                    timeout=timeout,
+                    state=state
+                )
+                
+                if element:
+                    logger.info(
+                        f"✓ Selector succeeded: {selector_group.name} - {selector.value[:60]} "
+                        f"(confidence: {selector.confidence:.2f}, attempt: {retry + 1}/{max_retries})"
+                    )
+                    selector_group.record_success(selector.value)
+                    
+                    # Log success in attempt history
+                    attempt_log.append({
+                        "selector": selector.value[:80],
+                        "result": "success",
+                        "confidence": selector.confidence,
+                        "score": selector.get_score(),
+                        "attempt": retry + 1
+                    })
+                    
+                    return selector.value, element
+                    
+            except PlaywrightTimeoutError:
+                logger.debug(
+                    f"✗ Selector timeout: {selector.value[:60]} "
+                    f"(confidence: {selector.confidence:.2f})"
+                )
+                selector_group.record_failure(selector.value)
+                attempt_log.append({
+                    "selector": selector.value[:80],
+                    "result": "timeout",
+                    "confidence": selector.confidence,
+                    "score": selector.get_score(),
+                    "attempt": retry + 1
+                })
+                continue
+            except Exception as e:
+                logger.debug(
+                    f"✗ Selector error: {selector.value[:60]} - {e} "
+                    f"(confidence: {selector.confidence:.2f})"
+                )
+                selector_group.record_failure(selector.value)
+                attempt_log.append({
+                    "selector": selector.value[:80],
+                    "result": f"error: {str(e)[:50]}",
+                    "confidence": selector.confidence,
+                    "score": selector.get_score(),
+                    "attempt": retry + 1
+                })
+                continue
     
-    logger.error(f"All selectors failed for: {selector_group.name}")
+    # All attempts exhausted - log comprehensive failure report
+    logger.error(f"All selectors failed for: {selector_group.name} after {max_retries} attempts")
+    logger.error(f"Attempted {len(attempt_log)} selector combinations:")
+    for i, attempt in enumerate(attempt_log, 1):
+        logger.error(
+            f"  {i}. {attempt['selector']} - {attempt['result']} "
+            f"(confidence: {attempt['confidence']:.2f}, score: {attempt['score']:.2f}, "
+            f"attempt: {attempt['attempt']})"
+        )
+    
     return None, None
