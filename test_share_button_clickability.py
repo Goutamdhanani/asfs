@@ -150,17 +150,16 @@ class TestShareButtonClickability(unittest.TestCase):
         share_section_start = self.content.find('# For Share button specifically')
         share_section = self.content[share_section_start:share_section_start + 3000]  # Increased to 3000
         
-        error_messages = [
-            'did not disappear',
-            'overlay',
+        # All critical error messages must be present
+        critical_messages = [
+            'CRITICAL',
+            'Upload NOT confirmed',
             'Manual review',
-            'DO NOT mark as successful',
         ]
         
-        found_count = sum(1 for msg in error_messages 
-                         if msg in share_section or msg.lower() in share_section)
-        self.assertGreaterEqual(found_count, 2,  # Changed to assertGreaterEqual
-                          f"Share failure should have detailed logging. Found {found_count} of {error_messages}")
+        for msg in critical_messages:
+            self.assertIn(msg, share_section,
+                         f"Share failure logging must include: '{msg}'")
     
     def test_has_get_clickable_button_info_function(self):
         """Verify _get_clickable_button_info helper function exists."""

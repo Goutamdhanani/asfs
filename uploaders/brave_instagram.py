@@ -39,6 +39,9 @@ OVERLAY_CLEAR_WAIT_MS = 2000  # Wait time after detecting overlay
 SHARE_RETRY_WAIT_MS = 1000    # Wait time before retry click
 SHARE_DISAPPEAR_TIMEOUT_MS = 5000  # Timeout for Share button to disappear
 
+# Clickability validation thresholds
+MIN_CLICKABLE_OPACITY = 0.5  # Minimum opacity for button to be considered clickable (0.5 = 50% visible)
+
 # JS click expression for fallback when standard click fails
 JS_CLICK_EXPRESSION = 'el => el.click()'
 
@@ -80,7 +83,7 @@ JS_CHECK_CLICKABLE = """
         hasSize: hasSize,
         inViewport: inViewport,
         isTopmost: isTopmost,
-        isClickable: hasSize && pointerEvents !== 'none' && opacity > 0.5 && isTopmost
+        isClickable: hasSize && pointerEvents !== 'none' && opacity > 0.5 && isTopmost  // 0.5 = MIN_CLICKABLE_OPACITY threshold
     };
 }
 """
@@ -215,7 +218,8 @@ def _find_best_share_button(page: Page, matching_buttons: list) -> tuple:
             # Z-index (higher is better, 'auto' treated as 0)
             try:
                 z = int(info['zIndex']) if info['zIndex'] != 'auto' else 0
-            except:
+            except (ValueError, TypeError):
+                # If z-index can't be converted to int, treat as 0
                 z = 0
             
             # Score: prefer higher z-index and closer to center
