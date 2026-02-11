@@ -25,6 +25,7 @@ class MainWindow(QMainWindow):
     
     def __init__(self):
         super().__init__()
+        self.batch_message_shown = False  # Track if batch message was shown
         self.init_ui()
         self.init_workers()
         self.load_settings()
@@ -141,7 +142,7 @@ class MainWindow(QMainWindow):
             return
         
         # For now, only process first video (TODO: add batch processing)
-        if len(selected_videos) > 1:
+        if len(selected_videos) > 1 and not self.batch_message_shown:
             QMessageBox.information(
                 self,
                 "Batch Processing",
@@ -149,6 +150,7 @@ class MainWindow(QMainWindow):
                 "Currently processing first video only.\n"
                 "Full batch processing will be added in a future update."
             )
+            self.batch_message_shown = True  # Don't show again this session
         
         video_path = selected_videos[0]
         

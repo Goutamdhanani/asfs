@@ -12,6 +12,10 @@ from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
+# Score range constants
+FINAL_SCORE_MAX = 100.0
+COMPONENT_SCORE_MAX = 10.0
+
 # Try importing Azure AI Inference SDK
 try:
     from azure.ai.inference import ChatCompletionsClient
@@ -29,7 +33,7 @@ except ImportError:
     OPENAI_SDK_AVAILABLE = False
 
 
-def validate_prompt(prompt: str, min_length: int = 10) -> tuple[bool, str]:
+def validate_prompt(prompt: str, min_length: int = 10) -> tuple[bool, str | None]:
     """
     Validate a prompt before sending to LLM.
     
@@ -147,9 +151,9 @@ def extract_score_safe(data: dict, field: str, default: float = 0.0) -> float:
         # Clamp to valid range for component scores (0-10)
         # Note: final_score uses 0-100
         if field == 'final_score':
-            return max(0.0, min(100.0, score))
+            return max(0.0, min(FINAL_SCORE_MAX, score))
         else:
-            return max(0.0, min(10.0, score))
+            return max(0.0, min(COMPONENT_SCORE_MAX, score))
             
     except (ValueError, TypeError) as e:
         logger.warning(f"Failed to extract score for '{field}': {e}, using default {default}")
@@ -184,11 +188,12 @@ def create_batch_prompt(segments: List[Dict], prompt_template: str) -> str:
         Formatted batch prompt string
     """
     # Build segment list for batch prompt
-    segments_text = ""
+    segments_list = []
     for i, seg in enumerate(segments, 1):
-        segments_text += f"\n\n━━━ SEGMENT {i} ━━━\n"
-        segments_text += f"Text: {seg['text']}\n"
-        segments_text += f"Duration: {seg['duration']:.1f}s\n"
+        segments_list.append(f"\n\n━━━ SEGMENT {i} ━━━\n")
+        segments_list.append(f"Text: {seg['text']}\n")
+        segments_list.append(f"Duration: {seg['duration']:.1f}s\n")
+    segments_text = ''.join(segments_list)
     
     batch_prompt = f"""Score the following {len(segments)} video segments using the criteria below.
 
