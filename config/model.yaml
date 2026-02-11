@@ -23,23 +23,6 @@ model:
   inter_request_delay: 1.5  # Seconds between API calls
   max_cooldown_threshold: 60  # If retry-after > this, stop pipeline
   
-  # LLM Backend Selection (NEW)
-  # Options: "auto" | "local" | "api"
-  # - auto (default): Try local Ollama first, fallback to API if unavailable
-  # - local: Require Ollama, fallback to API with warning if unavailable
-  # - api: Use API only, skip local entirely
-  llm_backend: "auto"
-  
-  # Local LLM Configuration (Ollama)
-  local_model_name: "qwen2.5:3b-instruct"  # Supported: qwen2.5:3b-instruct, qwen2.5:7b-instruct
-  local_endpoint: "http://localhost:11434"
-  
-  # Ollama-specific settings
-  local_keep_alive: "5m"  # How long to keep model in memory (5m, 10m, -1 for indefinite)
-  
-  # Circuit breaker configuration
-  circuit_breaker_threshold: 3  # Number of consecutive local failures before switching to API
-  
   # ========================================
   # ENHANCED VIRAL DETECTION PIPELINE (NEW)
   # ========================================
