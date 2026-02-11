@@ -97,7 +97,7 @@ class TestInstagramStableSelectors(unittest.TestCase):
         self.assertIn('div[role="button"]:has-text("{button_text}")', self.content,
                      "Share button should use role-based selector with button_text parameter")
         # Verify documentation mentions Share button usage
-        self.assertIn('"Share")', self.content,
+        self.assertIn('"Share"', self.content,
                      "Documentation should mention Share button usage")
     
     def test_file_upload_uses_input_type(self):

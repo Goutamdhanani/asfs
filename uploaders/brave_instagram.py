@@ -23,6 +23,9 @@ logger = logging.getLogger(__name__)
 # Initialize Instagram selector manager (with intelligence)
 _instagram_selectors = get_instagram_selectors()
 
+# Maximum number of buttons to log for debugging when selector fails
+MAX_BUTTONS_TO_LOG = 10
+
 # Instagram Create button selector - ONLY use the stable one
 # Instagram's UI is modal-based and this is the only consistently reliable trigger
 # If this selector fails, Instagram changed UI - log hard error and STOP
@@ -41,9 +44,10 @@ def _wait_for_button_enabled(page: Page, button_text: str, timeout: int = 90000)
     
     Uses robust selector fallback strategy:
     1. Try text-based selectors with has-text()
-    2. Fallback to role-based selector with manual text filtering
-    3. If multiple matches, select last visible and enabled button
-    4. Scroll into view if needed before clicking
+    2. Fallback to role-based selector with manual text filtering (tabindex="0" required)
+    3. Last resort: role-based selector without tabindex requirement
+    4. For multiple matches, select last visible and enabled button
+    5. Scroll into view if needed before clicking
     
     Args:
         page: Playwright Page object
@@ -144,7 +148,7 @@ def _wait_for_button_enabled(page: Page, button_text: str, timeout: int = 90000)
             try:
                 logger.error("Attempting to log all role='button' elements for audit:")
                 all_role_buttons = page.locator('[role="button"]').all()
-                for i, btn in enumerate(all_role_buttons[:10]):  # Limit to first 10 for readability
+                for i, btn in enumerate(all_role_buttons[:MAX_BUTTONS_TO_LOG]):
                     try:
                         text = btn.text_content()
                         is_visible = btn.is_visible()

@@ -92,7 +92,7 @@ class TestShareButtonFix(unittest.TestCase):
             'robust selector fallback strategy',
             'Try text-based selectors',
             'Fallback to role-based',
-            'If multiple matches',
+            'multiple matches',
             'Scroll into view',
         ]
         
