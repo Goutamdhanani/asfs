@@ -45,6 +45,7 @@ KEYBOARD_SUBMIT_WAIT_MS = 3000 # Wait after pressing ENTER to trigger upload
 UPLOAD_CONFIRMATION_WAIT_MS = 15000  # Wait for dialog disappearance or progress indicators
 UPLOAD_CONFIRMATION_CHECK_INTERVAL_MS = 1000  # Check every 1 second
 UPLOAD_MIN_SAFETY_WAIT_MS = 10000  # Minimum wait before closing (to ensure IG processes upload)
+MIN_TIMEOUT_MS = 1000  # Minimum timeout threshold to ensure positive timeout values
 
 # Legacy button click enhancement timeouts (in milliseconds)
 # These are kept for backwards compatibility with Next button logic
@@ -97,6 +98,11 @@ def _wait_for_upload_confirmation(page: Page) -> tuple[bool, str]:
         
     Returns:
         Tuple of (confirmed: bool, message: str)
+        
+        Examples:
+            (True, "Instagram upload confirmed (dialog disappeared after 3.2s)")
+            (False, "Instagram upload submitted (status unverified, waited 10.0s for safety)")
+            
         - confirmed: True if upload confirmed, False if timeout/ambiguous
         - message: Description of what was detected
     """
@@ -143,7 +149,7 @@ def _wait_for_upload_confirmation(page: Page) -> tuple[bool, str]:
                     logger.info("Progress indicator detected, waiting for it to disappear...")
                     # Calculate remaining timeout, ensure it's positive
                     elapsed_ms = int((time.time() - start_time) * 1000)
-                    remaining_timeout = max(1000, UPLOAD_CONFIRMATION_WAIT_MS - elapsed_ms)
+                    remaining_timeout = max(MIN_TIMEOUT_MS, UPLOAD_CONFIRMATION_WAIT_MS - elapsed_ms)
                     page.wait_for_selector(progress_selector, state="hidden", timeout=remaining_timeout)
                     elapsed = time.time() - start_time
                     logger.info(f"Progress indicator disappeared after {elapsed:.1f}s - upload confirmed")

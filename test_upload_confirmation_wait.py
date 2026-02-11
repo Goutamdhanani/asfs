@@ -116,10 +116,15 @@ class TestUploadConfirmationWait(unittest.TestCase):
         # Verify we call confirmation wait after trigger
         self.assertIn('_trigger_share_with_keyboard(page, caption_box)', self.instagram_content)
         
-        # Check that old immediate-close pattern is gone
-        old_pattern = 'logger.warning("Instagram upload submitted - no deterministic confirmation available")\n        result = "Instagram upload submitted (status unverified)"\n        \n        browser.human_delay'
-        self.assertNotIn(old_pattern, self.instagram_content,
-                        "Old immediate-close pattern still exists")
+        # Check that old immediate-close pattern components are gone
+        # Test for individual components that made up the old pattern
+        self.assertNotIn('Instagram upload submitted - no deterministic confirmation available',
+                        self.instagram_content,
+                        "Old warning message still exists")
+        
+        # Verify new pattern exists: confirmation wait is called
+        self.assertIn('_wait_for_upload_confirmation(page)', self.instagram_content,
+                     "New confirmation wait pattern not found")
     
     def test_tiktok_enhanced_confirmation_wait(self):
         """Verify TikTok has enhanced confirmation wait logic."""
