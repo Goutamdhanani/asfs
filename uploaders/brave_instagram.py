@@ -23,6 +23,9 @@ logger = logging.getLogger(__name__)
 # Initialize Instagram selector manager (with intelligence)
 _instagram_selectors = get_instagram_selectors()
 
+# Maximum number of buttons to log for debugging when selector fails
+MAX_BUTTONS_TO_LOG = 10
+
 # Instagram Create button selector - ONLY use the stable one
 # Instagram's UI is modal-based and this is the only consistently reliable trigger
 # If this selector fails, Instagram changed UI - log hard error and STOP
@@ -39,9 +42,12 @@ def _wait_for_button_enabled(page: Page, button_text: str, timeout: int = 90000)
     Instagram disables buttons while processing uploads/crops.
     Clicking early results in ignored clicks.
     
-    Uses stable selectors:
-    - div[role="button"]:has-text("Next") for Next button
-    - div[role="button"]:has-text("Share") for Share button
+    Uses robust selector fallback strategy:
+    1. Try text-based selectors with has-text()
+    2. Fallback to role-based selector with manual text filtering (tabindex="0" required)
+    3. Last resort: role-based selector without tabindex requirement
+    4. For multiple matches, select last visible and enabled button
+    5. Scroll into view if needed before clicking
     
     Args:
         page: Playwright Page object
@@ -53,32 +59,115 @@ def _wait_for_button_enabled(page: Page, button_text: str, timeout: int = 90000)
     """
     import time
     try:
-        # Try multiple selector strategies for better compatibility
-        selectors = [
+        button = None
+        successful_selector = None
+        
+        # Strategy 1: Try text-based selectors (Playwright's :has-text() pseudo-selector)
+        text_selectors = [
             f'div[role="button"]:has-text("{button_text}")',
             f'button:has-text("{button_text}")',
             f'[role="button"]:has-text("{button_text}")',
         ]
         
-        button = None
-        successful_selector = None
-        
-        # Find which selector works
-        for selector in selectors:
+        logger.info(f"Searching for '{button_text}' button with text-based selectors")
+        for selector in text_selectors:
             try:
                 btn = page.locator(selector).first
                 btn.wait_for(state="visible", timeout=10000)
                 button = btn
                 successful_selector = selector
-                logger.debug(f"{button_text} button found with selector: {selector}")
+                logger.info(f"{button_text} button found with selector: {selector}")
                 break
             except Exception as e:
                 logger.debug(f"Selector {selector} failed: {e}")
                 continue
         
+        # Strategy 2: Fallback to role-based selector with manual text filtering
         if not button:
-            logger.error(f"{button_text} button not found with any selector")
+            logger.info(f"Text-based selectors failed, trying role-based with manual filtering")
+            try:
+                # Find all div[role="button"][tabindex="0"] elements
+                role_selector = 'div[role="button"][tabindex="0"]'
+                all_buttons = page.locator(role_selector).all()
+                
+                logger.info(f"Found {len(all_buttons)} div[role='button'][tabindex='0'] elements")
+                
+                # Filter by text content (case insensitive, trimmed)
+                matching_buttons = []
+                for btn in all_buttons:
+                    try:
+                        text_content = btn.text_content()
+                        if text_content and button_text.lower() in text_content.strip().lower():
+                            # Check if button is visible
+                            if btn.is_visible():
+                                matching_buttons.append(btn)
+                                logger.debug(f"Found matching button with text: '{text_content.strip()}'")
+                    except Exception:
+                        continue
+                
+                if matching_buttons:
+                    # Select the last visible button (Instagram often has multiple, we want the final one)
+                    button = matching_buttons[-1]
+                    successful_selector = f"{role_selector} (filtered by text '{button_text}', selected last of {len(matching_buttons)})"
+                    logger.info(f"{button_text} button found with role-based selector: {successful_selector}")
+                else:
+                    logger.warning(f"No visible buttons with text '{button_text}' found among {len(all_buttons)} role buttons")
+            except Exception as e:
+                logger.warning(f"Role-based selector strategy failed: {e}")
+        
+        # Strategy 3: Last resort - try without tabindex requirement
+        if not button:
+            logger.info(f"Trying fallback without tabindex requirement")
+            try:
+                fallback_selector = f'div[role="button"]'
+                all_buttons = page.locator(fallback_selector).all()
+                
+                logger.info(f"Found {len(all_buttons)} div[role='button'] elements (no tabindex filter)")
+                
+                matching_buttons = []
+                for btn in all_buttons:
+                    try:
+                        text_content = btn.text_content()
+                        if text_content and button_text.lower() in text_content.strip().lower():
+                            if btn.is_visible():
+                                matching_buttons.append(btn)
+                                logger.debug(f"Found matching button with text: '{text_content.strip()}'")
+                    except Exception:
+                        continue
+                
+                if matching_buttons:
+                    button = matching_buttons[-1]
+                    successful_selector = f"{fallback_selector} (filtered by text '{button_text}', selected last of {len(matching_buttons)})"
+                    logger.info(f"{button_text} button found with fallback selector: {successful_selector}")
+            except Exception as e:
+                logger.warning(f"Fallback selector strategy failed: {e}")
+        
+        if not button:
+            # Log all buttons found for debugging
+            logger.error(f"{button_text} button not found with any selector strategy")
+            try:
+                logger.error("Attempting to log all role='button' elements for audit:")
+                all_role_buttons = page.locator('[role="button"]').all()
+                for i, btn in enumerate(all_role_buttons[:MAX_BUTTONS_TO_LOG]):
+                    try:
+                        text = btn.text_content()
+                        is_visible = btn.is_visible()
+                        aria_disabled = btn.get_attribute('aria-disabled')
+                        tabindex = btn.get_attribute('tabindex')
+                        logger.error(f"  Button {i+1}: text='{text.strip() if text else ''}', visible={is_visible}, "
+                                   f"aria-disabled={aria_disabled}, tabindex={tabindex}")
+                    except Exception:
+                        pass
+            except Exception as e:
+                logger.error(f"Could not log buttons for audit: {e}")
             return False
+        
+        # Scroll button into view if needed
+        try:
+            button.scroll_into_view_if_needed(timeout=5000)
+            logger.debug(f"{button_text} button scrolled into view")
+        except Exception as e:
+            logger.debug(f"Could not scroll button into view (may already be visible): {e}")
         
         # Wait for button to be visible and attached
         button.wait_for(state="visible", timeout=timeout)
@@ -113,7 +202,7 @@ def _wait_for_button_enabled(page: Page, button_text: str, timeout: int = 90000)
                     page.wait_for_timeout(500)
                 else:
                     # Button is enabled
-                    logger.debug(f"{button_text} button enabled after {elapsed:.1f}s")
+                    logger.info(f"{button_text} button enabled after {elapsed:.1f}s, ready to click")
                     break
             except Exception as e:
                 # If we can't check attributes, assume it's ready
@@ -122,7 +211,7 @@ def _wait_for_button_enabled(page: Page, button_text: str, timeout: int = 90000)
         
         # Now safe to click
         button.click()
-        logger.info(f"{button_text} button clicked successfully")
+        logger.info(f"{button_text} button clicked successfully using selector: {successful_selector}")
         return True
     except PlaywrightTimeoutError:
         logger.error(f"{button_text} button did not become visible/ready in time")
