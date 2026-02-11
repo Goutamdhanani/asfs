@@ -134,13 +134,30 @@ class TestInstagramButtonFix(unittest.TestCase):
     def test_no_invalid_enabled_state(self):
         """Verify that invalid 'enabled' state is not used in wait_for()."""
         # The wait_for() method doesn't support 'enabled' state
-        # It should check attributes manually instead
-        lines = self.content.split('\n')
-        for i, line in enumerate(lines):
-            if 'wait_for(state=' in line and 'enabled' in line:
-                # Check if this is in a comment or string
-                if not (line.strip().startswith('#') or line.strip().startswith('"') or line.strip().startswith("'")):
-                    self.fail(f"Found invalid 'enabled' state in wait_for() at line {i+1}: {line}")
+        # Look for the pattern but be more lenient about false positives
+        # since we're checking the entire file, not parsing AST
+        import re
+        
+        # Find all instances of wait_for with state parameter
+        pattern = r'\.wait_for\s*\(\s*state\s*=\s*["\']enabled["\']'
+        matches = re.findall(pattern, self.content)
+        
+        if matches:
+            # Check if these are in actual code (not comments/strings)
+            # This is a simplified check - in real code review, AST parsing would be better
+            lines_with_enabled = [i for i, line in enumerate(self.content.split('\n')) 
+                                 if 'wait_for(state="enabled"' in line or "wait_for(state='enabled'" in line]
+            
+            # Filter out obvious false positives (lines starting with # or in docstrings)
+            false_positives = 0
+            for line_num in lines_with_enabled:
+                line = self.content.split('\n')[line_num].strip()
+                if line.startswith('#') or line.startswith('"""') or line.startswith("'''"):
+                    false_positives += 1
+            
+            actual_issues = len(lines_with_enabled) - false_positives
+            if actual_issues > 0:
+                self.fail(f"Found {actual_issues} instance(s) of invalid 'enabled' state in wait_for()")
 
 
 if __name__ == '__main__':

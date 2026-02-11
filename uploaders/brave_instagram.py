@@ -103,11 +103,14 @@ def _wait_for_button_enabled(page: Page, button_text: str, timeout: int = 90000)
                 
                 # Check for disabled state
                 # - aria-disabled='true' indicates disabled
-                # - disabled attribute present (any value or no value) indicates disabled
+                # - disabled attribute present indicates disabled (HTML standard)
+                # Note: In standard HTML, presence of 'disabled' means disabled regardless of value,
+                # but Instagram/React may use aria-disabled for dynamic state instead
                 if aria_disabled == 'true' or disabled_attr is not None:
                     is_disabled = True
                     logger.debug(f"{button_text} button still disabled, waiting... (elapsed: {elapsed:.1f}s)")
-                    page.wait_for_timeout(500)  # Wait 500ms before checking again (faster polling)
+                    # Conservative 500ms polling interval to balance responsiveness with CPU usage
+                    page.wait_for_timeout(500)
                 else:
                     # Button is enabled
                     logger.debug(f"{button_text} button enabled after {elapsed:.1f}s")

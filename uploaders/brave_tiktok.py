@@ -70,7 +70,7 @@ def _wait_for_processing_complete(page: Page, timeout: int = 180000) -> bool:
             try:
                 logger.debug(f"Trying upload status selector: {selector}")
                 # Use shorter timeout per selector to avoid long waits
-                # wait_for_selector raises exception on timeout, doesn't return None
+                # wait_for_selector will raise TimeoutError if selector not found within timeout
                 page.wait_for_selector(selector, timeout=30000, state="visible")
                 elapsed = time.time() - start_time
                 logger.info(f"✓ Upload status: Uploaded (detected in {elapsed:.1f}s)")
