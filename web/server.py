@@ -20,17 +20,39 @@ from pathlib import Path
 from typing import Dict, List, Optional
 from datetime import datetime
 
+# ============================================================================
+# System Path Setup
+# ============================================================================
+# The server.py runs from the web/ directory, but ASFS modules
+# (pipeline, database, metadata, uploaders, etc.) are in the parent directory.
+# Add parent directory to sys.path so we can import these modules.
+SCRIPT_DIR = Path(__file__).parent.resolve()
+PROJECT_ROOT = SCRIPT_DIR.parent
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
 from flask import Flask, request, jsonify, send_from_directory, Response
 from flask_cors import CORS
 from dotenv import load_dotenv
+import yaml
 
 # Load environment variables
 load_dotenv()
 
-# Import ASFS modules
-from pipeline import run_pipeline
-from database.video_registry import VideoRegistry
-from config import model as config_model
+# ============================================================================
+# Import ASFS Modules
+# ============================================================================
+# Now that sys.path is configured, import ASFS modules from project root.
+# These are NOT PyPI packages - they are local modules in the parent directory.
+try:
+    from pipeline import run_pipeline
+    from database.video_registry import VideoRegistry
+except ImportError as e:
+    logger_temp = logging.getLogger(__name__)
+    logger_temp.error(f"Failed to import ASFS modules: {e}")
+    logger_temp.error(f"sys.path: {sys.path}")
+    logger_temp.error(f"PROJECT_ROOT: {PROJECT_ROOT}")
+    raise
 
 # Setup logging
 logging.basicConfig(
@@ -38,6 +60,35 @@ logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
+
+# ============================================================================
+# Configuration Loading
+# ============================================================================
+def load_model_config() -> Dict:
+    """
+    Load model configuration from config/model.yaml.
+    Uses PyYAML to load YAML file directly (not a Python import).
+    
+    Returns:
+        Dict: Model configuration dictionary
+    """
+    try:
+        config_path = PROJECT_ROOT / "config" / "model.yaml"
+        if config_path.exists():
+            with open(config_path, 'r') as f:
+                config_data = yaml.safe_load(f)
+                return config_data.get('model', {})
+        else:
+            logger.warning(f"Model config not found: {config_path}")
+            return {
+                'endpoint': 'https://models.inference.ai.azure.com',
+                'model_name': 'gpt-4o',
+                'temperature': 0.7,
+                'max_tokens': 500
+            }
+    except Exception as e:
+        logger.error(f"Failed to load model config: {e}")
+        return {}
 
 # Initialize Flask app
 app = Flask(__name__, static_folder='frontend/build', static_url_path='')
