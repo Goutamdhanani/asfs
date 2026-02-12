@@ -49,6 +49,7 @@ audit/events.db
 
 # Video registry database
 database/videos.db
+web/database/videos.db
 
 # Environment variables
 .env

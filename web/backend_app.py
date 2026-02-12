@@ -802,7 +802,7 @@ async def configure_upload(request: UploadConfigRequest):
 async def list_videos():
     """List all videos from registry."""
     try:
-        videos = video_registry.list_videos()
+        videos = video_registry.get_all_videos()
         
         # Format response
         result = []
