@@ -1,0 +1,30 @@
+# ASFS Backend Web Server Requirements
+# =====================================
+# These are the dependencies needed to run the backend web server (backend_app.py or server.py)
+# Install with: pip install -r requirements.txt
+
+# FastAPI Framework and ASGI Server
+fastapi>=0.104.0
+uvicorn>=0.24.0
+python-multipart>=0.0.6  # For file upload support
+
+# Flask Framework (alternative server.py)
+flask>=3.0.0
+flask-cors>=4.0.0
+
+# WebSocket Support
+websockets>=12.0
+
+# Environment Variables
+python-dotenv>=1.0.0
+
+# Configuration Loading
+PyYAML>=6.0.1
+
+# Video Processing
+ffmpeg-python>=0.2.0
+
+# Dependencies from parent project (inherits from ../requirements.txt)
+# Note: The backend imports modules from the parent directory which may have
+# additional dependencies. Make sure to also install ../requirements.txt:
+#   pip install -r ../requirements.txt

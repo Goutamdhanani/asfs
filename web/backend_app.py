@@ -25,6 +25,17 @@ from pathlib import Path
 from typing import Dict, List, Optional
 from datetime import datetime
 
+# ============================================================================
+# System Path Setup
+# ============================================================================
+# The backend_app.py runs from the web/ directory, but ASFS modules
+# (pipeline, database, metadata, uploaders, etc.) are in the parent directory.
+# Add parent directory to sys.path so we can import these modules.
+SCRIPT_DIR = Path(__file__).parent.resolve()
+PROJECT_ROOT = SCRIPT_DIR.parent
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
 from fastapi import FastAPI, File, UploadFile, WebSocket, WebSocketDisconnect, HTTPException, Body
 from fastapi.responses import JSONResponse, FileResponse
 from fastapi.middleware.cors import CORSMiddleware
@@ -32,16 +43,27 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from dotenv import load_dotenv
 import asyncio
+import yaml
 
 # Load environment variables
 load_dotenv()
 
-# Import ASFS modules
-from pipeline import run_pipeline
-from database.video_registry import VideoRegistry
-from config import model as config_model
-from metadata.resolver import resolve_metadata
-from metadata.config import MetadataConfig
+# ============================================================================
+# Import ASFS Modules
+# ============================================================================
+# Now that sys.path is configured, import ASFS modules from project root.
+# These are NOT PyPI packages - they are local modules in the parent directory.
+try:
+    from pipeline import run_pipeline
+    from database.video_registry import VideoRegistry
+    from metadata.resolver import resolve_metadata
+    from metadata.config import MetadataConfig
+except ImportError as e:
+    logger_temp = logging.getLogger(__name__)
+    logger_temp.error(f"Failed to import ASFS modules: {e}")
+    logger_temp.error(f"sys.path: {sys.path}")
+    logger_temp.error(f"PROJECT_ROOT: {PROJECT_ROOT}")
+    raise
 
 # Setup logging
 logging.basicConfig(
@@ -49,6 +71,54 @@ logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
+
+# ============================================================================
+# Configuration Loading
+# ============================================================================
+def load_model_config() -> Dict:
+    """
+    Load model configuration from config/model.yaml.
+    Uses PyYAML to load YAML file directly (not a Python import).
+    
+    Returns:
+        Dict: Model configuration dictionary
+    """
+    try:
+        config_path = PROJECT_ROOT / "config" / "model.yaml"
+        if config_path.exists():
+            with open(config_path, 'r') as f:
+                config_data = yaml.safe_load(f)
+                return config_data.get('model', {})
+        else:
+            logger.warning(f"Model config not found: {config_path}")
+            return {
+                'endpoint': 'https://models.inference.ai.azure.com',
+                'model_name': 'gpt-4o',
+                'temperature': 0.7,
+                'max_tokens': 500
+            }
+    except Exception as e:
+        logger.error(f"Failed to load model config: {e}")
+        return {}
+
+def load_platforms_config() -> Dict:
+    """
+    Load platforms configuration from config/platforms.json.
+    
+    Returns:
+        Dict: Platforms configuration dictionary
+    """
+    try:
+        config_path = PROJECT_ROOT / "config" / "platforms.json"
+        if config_path.exists():
+            with open(config_path, 'r') as f:
+                return json.load(f)
+        else:
+            logger.warning(f"Platforms config not found: {config_path}")
+            return {}
+    except Exception as e:
+        logger.error(f"Failed to load platforms config: {e}")
+        return {}
 
 # Initialize FastAPI app
 app = FastAPI(title="ASFS API", version="2.0.0")
