@@ -31,12 +31,22 @@ class VideosTab(QWidget):
         super().__init__(parent)
         self.video_registry = VideoRegistry()
         self.upload_workers = []  # Track active upload workers
+        self.metadata_callback = None  # Callback to get metadata settings from parent
         self.init_ui()
         
         # Auto-refresh timer
         self.refresh_timer = QTimer(self)
         self.refresh_timer.timeout.connect(self.refresh_videos)
         self.refresh_timer.start(5000)  # Refresh every 5 seconds
+    
+    def set_metadata_callback(self, callback):
+        """
+        Set callback to get metadata settings from parent window.
+        
+        Args:
+            callback: Function that returns metadata settings dict
+        """
+        self.metadata_callback = callback
     
     def init_ui(self):
         """Initialize the user interface."""
@@ -423,8 +433,36 @@ class VideosTab(QWidget):
         )
         
         if reply == QMessageBox.Yes:
+            # Get metadata settings from parent window if available
+            metadata = {}
+            if self.metadata_callback:
+                try:
+                    metadata_settings = self.metadata_callback()
+                    
+                    # Resolve metadata using the metadata resolver
+                    from metadata import MetadataConfig
+                    from metadata.resolver import resolve_metadata
+                    
+                    config = MetadataConfig.from_ui_values(
+                        mode=metadata_settings.get("mode", "uniform"),
+                        title_input=metadata_settings.get("title", ""),
+                        description_input=metadata_settings.get("description", ""),
+                        caption_input=metadata_settings.get("caption", ""),
+                        tags_input=metadata_settings.get("tags", ""),
+                        hashtag_prefix=metadata_settings.get("hashtag_prefix", True),
+                        hook_phrase=metadata_settings.get("hook_phrase", ""),
+                        hook_position=metadata_settings.get("hook_position", "Top Left"),
+                        logo_path=metadata_settings.get("logo_path", "")
+                    )
+                    
+                    metadata = resolve_metadata(config)
+                    logger.info(f"Applied metadata settings to upload: {metadata}")
+                    
+                except Exception as e:
+                    logger.error(f"Error getting metadata settings: {e}")
+            
             # Execute upload in background worker thread
-            worker = UploadWorker(video_id, platform)
+            worker = UploadWorker(video_id, platform, metadata)
             worker.upload_started.connect(self.on_upload_started)
             worker.upload_finished.connect(self.on_upload_finished)
             worker.upload_error.connect(self.on_upload_error)
