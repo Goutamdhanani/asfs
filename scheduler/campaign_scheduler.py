@@ -163,9 +163,11 @@ class CampaignScheduler:
                         campaign_id, video_id
                     )
                     
-                    # Add video path to metadata
+                    # Add video path, platform, campaign_id, and video_id to metadata
                     metadata['video_path'] = video_path
                     metadata['platform'] = platform
+                    metadata['campaign_id'] = campaign_id
+                    metadata['video_id'] = video_id
                     
                     # Execute upload via callback
                     try:
