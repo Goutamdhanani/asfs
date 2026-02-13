@@ -831,6 +831,347 @@ async def list_videos():
 
 
 # ============================================================================
+# Campaign Management API
+# ============================================================================
+
+# Pydantic models for campaign API requests
+class CampaignCreate(BaseModel):
+    name: str
+    description: Optional[str] = None
+    status: Optional[str] = 'draft'
+
+class CampaignMetadataConfig(BaseModel):
+    caption_mode: str = 'single'
+    captions: Optional[str] = None
+    hashtags: Optional[str] = None
+    title_mode: str = 'single'
+    titles: Optional[str] = None
+    add_hashtag_prefix: bool = True
+
+class CampaignScheduleConfig(BaseModel):
+    platforms: List[str]
+    delay_seconds: int = 0
+    scheduled_start: Optional[str] = None
+    auto_schedule: bool = False
+    upload_gap_hours: int = 1
+    upload_gap_minutes: int = 0
+
+class CampaignUpdate(BaseModel):
+    name: Optional[str] = None
+    description: Optional[str] = None
+    status: Optional[str] = None
+    video_ids: Optional[List[str]] = None
+    metadata: Optional[CampaignMetadataConfig] = None
+    schedule: Optional[CampaignScheduleConfig] = None
+
+# Initialize campaign manager
+from database import CampaignManager
+from scheduler import get_campaign_scheduler
+
+campaign_manager = CampaignManager()
+campaign_scheduler = get_campaign_scheduler()
+
+# Set up campaign scheduler callback for uploads
+from pipeline import run_campaign_upload
+
+def campaign_upload_callback(video_path: str, platform: str, metadata: Dict) -> bool:
+    """Upload callback for campaign scheduler."""
+    # The campaign scheduler passes metadata with campaign_id if available
+    campaign_id = metadata.get('campaign_id')
+    video_id = metadata.get('video_id')
+    
+    if campaign_id and video_id:
+        return run_campaign_upload(campaign_id, video_id, platform)
+    else:
+        # Fallback to regular upload (shouldn't happen)
+        logger.warning("Campaign upload callback called without campaign_id/video_id")
+        return False
+
+campaign_scheduler.set_upload_callback(campaign_upload_callback)
+
+
+@app.post("/api/campaigns")
+async def create_campaign(campaign: CampaignCreate):
+    """Create a new campaign."""
+    try:
+        campaign_id = campaign_manager.create_campaign(
+            name=campaign.name,
+            description=campaign.description,
+            status=campaign.status
+        )
+        
+        return {
+            'success': True,
+            'campaign_id': campaign_id,
+            'message': f'Campaign "{campaign.name}" created successfully'
+        }
+    except Exception as e:
+        logger.error(f"Error creating campaign: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/campaigns")
+async def list_campaigns(status: Optional[str] = None):
+    """List all campaigns with optional status filter."""
+    try:
+        campaigns = campaign_manager.list_campaigns(status_filter=status)
+        return {
+            'success': True,
+            'campaigns': campaigns
+        }
+    except Exception as e:
+        logger.error(f"Error listing campaigns: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/campaigns/{campaign_id}")
+async def get_campaign(campaign_id: str):
+    """Get detailed information about a campaign."""
+    try:
+        campaign = campaign_manager.get_campaign_details(campaign_id)
+        
+        if not campaign:
+            raise HTTPException(status_code=404, detail="Campaign not found")
+        
+        return {
+            'success': True,
+            'campaign': campaign
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting campaign: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.put("/api/campaigns/{campaign_id}")
+async def update_campaign(campaign_id: str, update: CampaignUpdate):
+    """Update campaign details."""
+    try:
+        # Verify campaign exists
+        campaign = campaign_manager.get_campaign_details(campaign_id)
+        if not campaign:
+            raise HTTPException(status_code=404, detail="Campaign not found")
+        
+        # Update basic info if provided
+        if update.name or update.status:
+            if update.status:
+                campaign_manager.update_campaign_status(campaign_id, update.status)
+            # Note: Name update would require additional method in campaign_manager
+        
+        # Update videos if provided
+        if update.video_ids is not None:
+            campaign_manager.add_videos_to_campaign(
+                campaign_id, 
+                update.video_ids, 
+                replace_existing=True
+            )
+        
+        # Update metadata if provided
+        if update.metadata:
+            metadata_dict = update.metadata.dict()
+            campaign_manager.set_campaign_metadata(campaign_id, metadata_dict)
+        
+        # Update schedule if provided
+        if update.schedule:
+            schedule_dict = update.schedule.dict()
+            campaign_manager.set_campaign_schedule(campaign_id, schedule_dict)
+        
+        return {
+            'success': True,
+            'message': 'Campaign updated successfully'
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error updating campaign: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.delete("/api/campaigns/{campaign_id}")
+async def delete_campaign(campaign_id: str):
+    """Delete a campaign and all associated data."""
+    try:
+        success = campaign_manager.delete_campaign(campaign_id)
+        
+        if not success:
+            raise HTTPException(status_code=404, detail="Campaign not found")
+        
+        return {
+            'success': True,
+            'message': 'Campaign deleted successfully'
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error deleting campaign: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/campaigns/{campaign_id}/execute")
+async def execute_campaign(campaign_id: str, background: bool = True):
+    """Start executing a campaign."""
+    try:
+        # Verify campaign exists
+        campaign = campaign_manager.get_campaign_details(campaign_id)
+        if not campaign:
+            raise HTTPException(status_code=404, detail="Campaign not found")
+        
+        # Create upload tasks if not already created
+        tasks_created = campaign_manager.create_upload_tasks(campaign_id)
+        
+        if tasks_created > 0:
+            logger.info(f"Created {tasks_created} upload tasks for campaign {campaign_id}")
+        
+        # Start campaign execution
+        success = campaign_scheduler.execute_campaign(campaign_id, blocking=not background)
+        
+        if not success:
+            raise HTTPException(status_code=400, detail="Failed to start campaign")
+        
+        return {
+            'success': True,
+            'message': f'Campaign execution started ({"background" if background else "blocking"} mode)',
+            'tasks_created': tasks_created
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error executing campaign: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/campaigns/{campaign_id}/pause")
+async def pause_campaign(campaign_id: str):
+    """Pause an active campaign."""
+    try:
+        success = campaign_scheduler.pause_campaign(campaign_id)
+        
+        if not success:
+            raise HTTPException(status_code=400, detail="Campaign is not active or not found")
+        
+        return {
+            'success': True,
+            'message': 'Campaign paused successfully'
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error pausing campaign: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/campaigns/{campaign_id}/resume")
+async def resume_campaign(campaign_id: str):
+    """Resume a paused campaign."""
+    try:
+        success = campaign_scheduler.resume_campaign(campaign_id)
+        
+        if not success:
+            raise HTTPException(status_code=400, detail="Campaign is not paused or not found")
+        
+        return {
+            'success': True,
+            'message': 'Campaign resumed successfully'
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error resuming campaign: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/campaigns/{campaign_id}/cancel")
+async def cancel_campaign(campaign_id: str):
+    """Cancel an active campaign."""
+    try:
+        success = campaign_scheduler.cancel_campaign(campaign_id)
+        
+        if not success:
+            raise HTTPException(status_code=400, detail="Campaign is not active or not found")
+        
+        return {
+            'success': True,
+            'message': 'Campaign cancellation requested'
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error cancelling campaign: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/campaigns/{campaign_id}/status")
+async def get_campaign_status(campaign_id: str):
+    """Get current execution status of a campaign."""
+    try:
+        # Get campaign details
+        campaign = campaign_manager.get_campaign_details(campaign_id)
+        if not campaign:
+            raise HTTPException(status_code=404, detail="Campaign not found")
+        
+        # Get execution status from scheduler
+        execution_status = campaign_scheduler.get_campaign_status(campaign_id)
+        
+        # Get active campaigns
+        active_campaigns = campaign_scheduler.list_active_campaigns()
+        
+        return {
+            'success': True,
+            'campaign_status': campaign['status'],
+            'execution_status': execution_status,
+            'is_active': campaign_id in active_campaigns,
+            'upload_stats': campaign.get('upload_stats', {})
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting campaign status: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/campaigns/{campaign_id}/analytics")
+async def get_campaign_analytics(campaign_id: str):
+    """Get analytics for a campaign."""
+    try:
+        campaign = campaign_manager.get_campaign_details(campaign_id)
+        if not campaign:
+            raise HTTPException(status_code=404, detail="Campaign not found")
+        
+        # Calculate analytics
+        upload_stats = campaign.get('upload_stats', {})
+        total_uploads = sum(upload_stats.values())
+        success_count = upload_stats.get('success', 0)
+        failed_count = upload_stats.get('failed', 0)
+        pending_count = upload_stats.get('pending', 0)
+        
+        success_rate = (success_count / total_uploads * 100) if total_uploads > 0 else 0
+        
+        # Get per-platform breakdown (would require additional query)
+        # For now, return basic stats
+        
+        return {
+            'success': True,
+            'analytics': {
+                'total_uploads': total_uploads,
+                'success_count': success_count,
+                'failed_count': failed_count,
+                'pending_count': pending_count,
+                'success_rate': round(success_rate, 2),
+                'video_count': campaign.get('video_count', 0),
+                'platforms': campaign.get('platforms', []),
+                'created_at': campaign.get('created_at'),
+                'updated_at': campaign.get('updated_at')
+            }
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting campaign analytics: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================================================
 # Static Files (Serve React App in Production)
 # ============================================================================
 
